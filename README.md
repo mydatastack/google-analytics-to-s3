@@ -42,4 +42,4 @@ function() {
 
 
 In case you have any questions please email us: `hello [at] pipesdata.com`
-[Source ~ Simo Ahava](https://www.simoahava.com)
+* [Source ~ Simo Ahava](https://www.simoahava.com)

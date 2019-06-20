@@ -40,5 +40,6 @@ function() {
 
 3. Step: Publish a new version in Google Tag Manager.
 
+---
 
-- [Source ~ Simo Ahava](https://www.simoahava.com)
+[Source ~ Simo Ahava](https://www.simoahava.com)

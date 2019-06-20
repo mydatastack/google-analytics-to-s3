@@ -29,7 +29,11 @@ function() {
 }
 ```
 
-2. Edit every single Google Analytics tag whose data you want to send to Pipes.
+2. Edit every single Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `duplicatorTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
+
+![gtm pipes](./img/gtm-pipes.png)
+
+3. Publish a new version.
 
 
 [Source ~ Simo Ahava](https://www.simoahava.com)

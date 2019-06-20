@@ -6,8 +6,8 @@ You can automatically duplicate Google Analytics hits to Pipes. You can do it wi
 
 ```js
 function() {
-  // Add your snowplow collector endpoint here
-  var endpoint = 'https://collector.simoahava.com/';
+  // Add your pipes collector endpoint here
+  var endpoint = 'https://collector.endpoint.com/';
   
   return function(model) {
     var vendor = 'com.google.analytics';

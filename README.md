@@ -1,5 +1,5 @@
 # Google Analytics Duplicator
-Yout can automatically duplicate Google Analytics hits to Pipes. You can do it with the help of Google Tag Manager. Below you'll find a step by step instruction. 
+You can automatically duplicate Google Analytics hits to Pipes. You can do it with the help of Google Tag Manager. Below you'll find a step by step instruction. 
 
 ---
 1. Step: Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
@@ -38,7 +38,7 @@ function() {
 
 ---
 
-3. Step: Publish a new version in Google Tag Manager
+3. Step: Publish a new version in Google Tag Manager.
 
 
 - [Source ~ Simo Ahava](https://www.simoahava.com)

@@ -28,4 +28,4 @@ function() {
 }
 ```
 
-* [Source](https://www.simoahava.com)
+[Source ~ Simo Ahava](https://www.simoahava.com)

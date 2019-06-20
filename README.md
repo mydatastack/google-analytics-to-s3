@@ -38,7 +38,7 @@ function() {
 
 ---
 
-3. Step: Publish a new version in Google Tag Manager.
+3. Step: Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
 
 ---
 

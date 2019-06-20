@@ -1,6 +1,7 @@
 # Google Analytics Duplicator
-Automatically duplicate Google Analytics hits to Pipes
+Yout can automatically duplicate Google Analytics payload to Pipes. You can do it with the help of Google Tag Manager. Below you'll find a step by step instruction.
 
+1. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
 
 ```js
 function() {
@@ -27,5 +28,8 @@ function() {
   };
 }
 ```
+
+2. Edit every single Google Analytics tag whose data you want to send to Pipes.
+
 
 [Source ~ Simo Ahava](https://www.simoahava.com)

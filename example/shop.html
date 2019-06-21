@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+      new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-5KLZJ74');</script>
+    <!-- End Google Tag Manager -->
+    <meta charset="utf-8">
+    <title>Shop - Pipes Google Analytics Duplicator</title>
+    <meta name="author" content="Dimitri Tarasowski">
+    <meta name="description" content="Duplicate Google Analytics hits to Pipes.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+  <body>
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-142371309-1"></script>
+    <h1>Shop - Pipes Google Analytics Duplicator</h1>
+        <ul>
+      <li><a href="index.html">Homepage</a></li>
+      <li><a href="shop.html">Shop</a></li>
+      <li><a href="contact.html">Contact</a></li>
+    </ul>
+    <hr>
+      <h2> Use case: Hit type = transaction</h2>
+      <p style="color: grey"> Here you can test how the Hit type: <b>transaction</b> is going to be duplicated to Pipes. Please click on the links below. Each click will send a pageview to Pipes. </p>
+<p style="color: grey">Please activate <b>Preview</b> mode in Google Tag Manager to see if all events are properly fired.</p>
+      <br><br>
+      <img src="https://static2.coutie.com/media/catalog/product/cache/1/zoom/853x1193/9df78eab33525d08d6e5fb8d27136e95/resized/zoom/1/1010620.jpg" width="300px" height="400px"/>
+      <br><br>
+      <span style="color:black; font-size: 25px">Choose your size:</span>
+      <select style="width: 100px">
+        <option value="41">41</option>
+        <option value="42">42</option>
+        <option value="43">43</option>
+        <option value="44">44</option>
+        <option value="45">45</option>
+        <option value="46">46</option>
+      </select>
+      <div id="price" style="font-size: 25px"></div>
+      <div> <input id="buy-now" type="submit" value="Buy Now"></div>
+  </body>
+  <script>
+    const getRandomInt = max => Math.floor(Math.random() * Math.floor(max))
+const randomPrice = getRandomInt(150)
+
+const myButton = document.getElementById("buy-now")
+myButton.style.height = '30px'
+myButton.style.width = '200px'
+const price = document.getElementById("price")
+price.innerHTML = `<p>Price: € ${randomPrice}.99</p>` 
+  </script>
+</html>
+

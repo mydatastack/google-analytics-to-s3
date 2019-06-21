@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+      new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-5KLZJ74');</script>
+    <!-- End Google Tag Manager -->
+    <meta charset="utf-8">
+    <title>Contact - Pipes Google Analytics Duplicator</title>
+    <meta name="author" content="Dimitri Tarasowski">
+    <meta name="description" content="Duplicate Google Analytics hits to Pipes.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+  <body>
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-142371309-1"></script>
+    <h1>Contact - Pipes Google Analytics Duplicator</h1>
+    <ul>
+      <li><a href="index.html">Homepage</a></li>
+      <li><a href="shop.html">Shop</a></li>
+      <li><a href="contact.html">Contact</a></li>
+    </ul>
+    <hr>
+    <h2>Use case: Hit type = event</h2>
+    <p style="color: grey"> Here you can test how the Hit type: <b>event</b> is going to be duplicated to Pipes. Please fill out the form and click on Submit. By clicking on submit an event will be sent to Pipes.</p>
+    <p style="color: grey">Please activate <b>Preview</b> mode in Google Tag Manager to see if all events are properly fired.</p>
+    <h4>Please write us a message!</h4>
+    <form action="javascript:void(0);">
+      Name:<br>
+      <input type="text" name="firstname" value="Your name..">
+      <br><br>
+      Email:<br>
+      <input type="text" name="email" value="Your email...">
+      <br><br>
+      Message:<br>
+      <textarea id="message" type="text" name="message" value="Your message..."></textarea>
+      <br><br>
+      <input id="register" type="submit" value="Send Now">
+      </from>
+      <br><br>
+  </body>
+  <script>
+const myButtonReg = document.getElementById("register")
+myButtonReg.style.height = '30px'
+myButtonReg.style.width = '200px'
+
+const myMessage = document.getElementById("message")
+myMessage.style.height = '100px'
+myMessage.stlye.width = '200px'
+
+  </script>
+</html>
+
+

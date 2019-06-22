@@ -18,30 +18,30 @@
     <!-- Global site tag (gtag.js) - Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=UA-142371309-1"></script>
     <h1>Shop - Pipes Google Analytics Duplicator</h1>
-        <ul>
+    <ul>
       <li><a href="index.html">Homepage</a></li>
       <li><a href="shop.html">Shop</a></li>
       <li><a href="contact.html">Contact</a></li>
     </ul>
     <hr>
-      <h2> Use case: Hit type = transaction</h2>
-      <p style="color: grey"> Here you can test how the Hit type: <b>transaction</b> is going to be duplicated to Pipes. Please click on the links below. Each click will send a pageview to Pipes. </p>
-<p style="color: grey">Please activate <b>Preview</b> mode in Google Tag Manager to see if all events are properly fired.</p>
-      <span style="color:black; font-size: 25px">Product Name: Coutie Vans</span>
-      <br><br>
-      <img src="https://static2.coutie.com/media/catalog/product/cache/1/zoom/853x1193/9df78eab33525d08d6e5fb8d27136e95/resized/zoom/1/1010620.jpg" width="300px" height="400px"/>
-      <br><br>
-      <span style="color:black; font-size: 25px">Choose your size:</span>
-      <select onchange="getSize()" id="size" style="width: 100px">
-        <option value="41">41</option>
-        <option value="42">42</option>
-        <option value="43">43</option>
-        <option value="44">44</option>
-        <option value="45">45</option>
-        <option value="46">46</option>
-      </select>
-      <div id="price" style="font-size: 25px"></div>
-      <div> <input onclick="transaction()" id="buy-now" type="submit" value="Buy Now"></div>
+    <h2> Use case: Hit type = transaction</h2>
+    <p style="color: grey"> Here you can test how the Hit type: <b>transaction</b> is going to be duplicated to Pipes. Please click on the links below. Each click will send a pageview to Pipes. </p>
+    <p style="color: grey">Please activate <b>Preview</b> mode in Google Tag Manager to see if all events are properly fired.</p>
+    <span style="color:black; font-size: 25px">Product Name: Coutie Vans</span>
+    <br><br>
+    <img src="https://static2.coutie.com/media/catalog/product/cache/1/zoom/853x1193/9df78eab33525d08d6e5fb8d27136e95/resized/zoom/1/1010620.jpg" width="300px" height="400px"/>
+    <br><br>
+    <span style="color:black; font-size: 25px">Choose your size:</span>
+    <select onchange="getSize()" id="size" style="width: 100px">
+      <option value="41">41</option>
+      <option value="42">42</option>
+      <option value="43">43</option>
+      <option value="44">44</option>
+      <option value="45">45</option>
+      <option value="46">46</option>
+    </select>
+    <div id="price" style="font-size: 25px"></div>
+    <div> <input onclick="transaction()" id="buy-now" type="submit" value="Buy Now"></div>
   </body>
   <script>
     const getRandomInt = max => Math.floor(Math.random() * Math.floor(max))
@@ -54,42 +54,29 @@ const price = document.getElementById("price")
 price.innerHTML = `<p>Price: € ${randomPrice}</p>` 
 window.dataLayer = window.dataLayer || [];
 const prodId = Math.random().toString(36).substring(7)
-var guid = function() {
-
-    var nav = window.navigator;
-    var screen = window.screen;
-    var guid = nav.mimeTypes.length;
-    guid += nav.userAgent.replace(/\D+/g, '');
-    guid += nav.plugins.length;
-    guid += screen.height || '';
-    guid += screen.width || '';
-    guid += screen.pixelDepth || '';
-
-    return guid;
-};
 
 function getSize() {
-    const e = document.getElementById("size")
-    return e.options[e.selectedIndex].value
+  const e = document.getElementById("size")
+  return e.options[e.selectedIndex].value
 }
 
 
 function transaction() {
-dataLayer.push({
-  'event': 'purchase',
- 'transactionId': prodId,
- 'transactionAffiliation': 'Coutie Vans - ' + (prodId.substring(0,3)),
- 'transactionTotal': randomPrice, 
- 'transactionTax': (randomPrice * 0.19),
- 'transactionShipping': 5,
- 'transactionProducts': [{
-   'sku': 'DD443345-' + getSize(),
-   'name': 'Shoes',
-   'category': 'Apparel',
-   'price': randomPrice,  
-   'quantity': 1 
- }]
-});
+  dataLayer.push({
+    'event': 'purchase',
+    'transactionId': prodId,
+    'transactionAffiliation': 'Coutie Vans - ' + (prodId.substring(0,3)),
+    'transactionTotal': randomPrice, 
+    'transactionTax': (randomPrice * 0.19),
+    'transactionShipping': 5,
+    'transactionProducts': [{
+      'sku': 'DD443345-' + getSize(),
+      'name': 'Shoes',
+      'category': 'Apparel',
+      'price': randomPrice,  
+      'quantity': 1 
+    }]
+  });
 }
   </script>
 </html>

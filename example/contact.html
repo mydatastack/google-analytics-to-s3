@@ -44,7 +44,7 @@
       <br><br>
   </body>
   <script>
-const myButtonReg = document.getElementById("register")
+    const myButtonReg = document.getElementById("register")
 myButtonReg.style.height = '30px'
 myButtonReg.style.width = '200px'
 
@@ -53,16 +53,15 @@ myMessage.style.height = '100px'
 myMessage.style.width = '200px'
 
 function contactForm() {
-  console.log('form submit was clicked')
-window.dataLayer = window.dataLayer || []
-dataLayer.push({
-  'event': 'formSubmission',
-  'formType': 'Contact us',
-  'formPosition': 'Footer',
-  'contactName': document.getElementById("firstname").value,
-  'contactEmail': document.getElementById("email").value,
-  'contactMessage': document.getElementById("message").value
-})
+  window.dataLayer = window.dataLayer || []
+  dataLayer.push({
+    'event': 'formSubmission',
+    'formType': 'Contact us',
+    'formPosition': 'Footer',
+    'contactName': document.getElementById("firstname").value,
+    'contactEmail': document.getElementById("email").value,
+    'contactMessage': document.getElementById("message").value
+  })
 }
 
   </script>

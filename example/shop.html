@@ -32,7 +32,7 @@
       <img src="https://static2.coutie.com/media/catalog/product/cache/1/zoom/853x1193/9df78eab33525d08d6e5fb8d27136e95/resized/zoom/1/1010620.jpg" width="300px" height="400px"/>
       <br><br>
       <span style="color:black; font-size: 25px">Choose your size:</span>
-      <select style="width: 100px">
+      <select onchange="getSize()" id="size" style="width: 100px">
         <option value="41">41</option>
         <option value="42">42</option>
         <option value="43">43</option>
@@ -41,7 +41,7 @@
         <option value="46">46</option>
       </select>
       <div id="price" style="font-size: 25px"></div>
-      <div> <input id="buy-now" type="submit" value="Buy Now"></div>
+      <div> <input onclick="transaction()" id="buy-now" type="submit" value="Buy Now"></div>
   </body>
   <script>
     const getRandomInt = max => Math.floor(Math.random() * Math.floor(max))
@@ -52,6 +52,46 @@ myButton.style.height = '30px'
 myButton.style.width = '200px'
 const price = document.getElementById("price")
 price.innerHTML = `<p>Price: € ${randomPrice}</p>` 
+window.dataLayer = window.dataLayer || [];
+const prodId = Math.random().toString(36).substring(7)
+console.log(prodId)
+var guid = function() {
+
+    var nav = window.navigator;
+    var screen = window.screen;
+    var guid = nav.mimeTypes.length;
+    guid += nav.userAgent.replace(/\D+/g, '');
+    guid += nav.plugins.length;
+    guid += screen.height || '';
+    guid += screen.width || '';
+    guid += screen.pixelDepth || '';
+
+    return guid;
+};
+
+function getSize() {
+    const e = document.getElementById("size")
+    return e.options[e.selectedIndex].value
+}
+
+
+function transaction() {
+dataLayer.push({
+  'event': 'purchase',
+ 'transactionId': prodId,
+ 'transactionAffiliation': 'Coutie Vans - ' + (prodId.substring(0,3)),
+ 'transactionTotal': randomPrice, 
+ 'transactionTax': (randomPrice * 0.19),
+ 'transactionShipping': 5,
+ 'transactionProducts': [{
+   'sku': 'DD443345-' + getSize(),
+   'name': 'Shoes',
+   'category': 'Apparel',
+   'price': randomPrice,  
+   'quantity': 1 
+ }]
+});
+}
   </script>
 </html>
 

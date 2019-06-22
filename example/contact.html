@@ -31,15 +31,15 @@
     <br><br>
     <form action="javascript:void(0);">
       Name:<br>
-      <input type="text" name="firstname" value="Your name..">
+      <input type="text" id="firstname" name="firstname" placeholder="Your name..">
       <br><br>
       Email:<br>
-      <input type="text" name="email" value="Your email...">
+      <input type="text" id="email" name="email" placeholder="Your email...">
       <br><br>
       Message:<br>
-      <textarea id="message" type="text" name="message" value="Your message..."></textarea>
+      <textarea id="message" id="message"type="text" name="message" placeholder="Your message..."></textarea>
       <br><br>
-      <input id="register" type="submit" value="Send Now">
+      <input id="register" type="submit" onclick="contactForm()" value="Send Now">
       </from>
       <br><br>
   </body>
@@ -50,7 +50,20 @@ myButtonReg.style.width = '200px'
 
 const myMessage = document.getElementById("message")
 myMessage.style.height = '100px'
-myMessage.stlye.width = '200px'
+myMessage.style.width = '200px'
+
+function contactForm() {
+  console.log('form submit was clicked')
+window.dataLayer = window.dataLayer || []
+dataLayer.push({
+  'event': 'formSubmission',
+  'formType': 'Contact us',
+  'formPosition': 'Footer',
+  'contactName': document.getElementById("firstname").value,
+  'contactEmail': document.getElementById("email").value,
+  'contactMessage': document.getElementById("message").value
+})
+}
 
   </script>
 </html>

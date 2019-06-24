@@ -51,4 +51,4 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 
 ![duplicator](./img/cf-endpoint.png)
 
-* [Inspired by Simo Ahava](https://www.simoahava.com)
+* Inspired by Simo Ahava: [Simo's blog](https://www.simoahava.com)

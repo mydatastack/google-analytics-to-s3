@@ -32,7 +32,7 @@ function() {
 
 **Important:** Don't forget to change the endpoint in the code. Your endpoint
 you can find in Cloudformation under the deployed Google Analytics Nested Stack
-[more](## cloudformation---google-analytics-duplicator-endpoint)
+[more](#google-analytics-duplicator-endpoint)
 
 ---
 
@@ -46,7 +46,7 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 
 ---
 
-## Cloudformation - Google Analytics Duplicator Endpoint
+## Google Analytics Duplicator Endpoint
 
 ![duplicator](./img/cf-endpoint.png)
 

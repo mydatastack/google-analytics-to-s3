@@ -30,6 +30,10 @@ function() {
 }
 ```
 
+**Important:** Don't forget to change the endpoint in the code. Your endpoint
+you can find in Cloudformation under the deployed Google Analytics Nested Stack
+[more][1]
+
 ---
 
 2. Step: Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
@@ -41,5 +45,9 @@ function() {
 3. Step: Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
 
 ---
+
+[1]
+* Your Google Analytics Duplicator Endpoint
+![duplicator](./img/cf-endpoint.png)
 
 [Source ~ Simo Ahava](https://www.simoahava.com)

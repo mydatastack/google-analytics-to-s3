@@ -2,7 +2,11 @@
 <html>
   <head>
   <script>
-    dataLayer = []
+    dataLayer = [{
+      'userId': 'uid_12345678910', 
+      'pageCategory': 'login',
+      'visitorType': 'high-value'
+    }]
   </script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -12,7 +16,7 @@
     })(window,document,'script','dataLayer','GTM-5KLZJ74');</script>
     <!-- End Google Tag Manager -->
     <meta charset="utf-8">
-    <title>Home - Pipes Google Analytics Duplicator</title>
+    <title>Login - Pipes Google Analytics Duplicator</title>
     <meta name="author" content="Dimitri Tarasowski">
     <meta name="description" content="Duplicate Google Analytics hits to Pipes.">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -28,8 +32,8 @@
       <li><a href="login.html">Login</a></li>
     </ul>
     <hr>
-    <h2> Use case: Hit type = pageview</h2>
-    <p style="color: grey"> Here you can test how the Hit type: <b>pageview</b> is going to be duplicated to Pipes. Please click on the links above. Each click will send a pageview to Pipes. </p>
+    <h2> Use case: Hit type = pageview with user_id</h2>
+    <p style="color: grey"> Here you can test how the Hit type: <b>pageview</b> with <b>user_id</b> is going to be duplicated to Pipes.</p> 
     <p style="color: grey">Please activate <b>Preview</b> mode in Google Tag Manager to see if all events are properly fired.</p>
   </body>
 </html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <script>
+    dataLayer = window.dataLayer || [] 
+  </script>
+    <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+      new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-5KLZJ74');</script>
+    <!-- End Google Tag Manager -->
+    <meta charset="utf-8">
+    <title>SaaS Step 1 - Pipes Google Analytics Duplicator</title>
+    <meta name="author" content="Dimitri Tarasowski">
+    <meta name="description" content="Duplicate Google Analytics hits to Pipes.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+  <body>
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-142371309-1"></script>
+    <h1>Saas Step 1 - Pipes Google Analytics Duplicator</h1>
+    <ul>
+      <li><a href="index.html">Dropout</a></li>
+    </ul>
+    <hr>
+    <h2> Eprimo Kündigen </h2>
+    <h3> Step 1: Landingpage</h3>
+    <p> Kündige deinen Vertrag mit eprimo in nur wenigen Schritten. Rechtswirksam & sofort bestätigt!</p> <p>1. Kündigungsformular auswählen</p> <p>2. Kündigung online unterschreiben</p> <p>3. Versandmethode auswählen & Kündigung versenden </p>
+    <a href="saas-step-2.html" ><button onclick="recordSteps()" style="width: 200px; height: 50px;">Zur Kündigungsvorlage >></button></a>
+  </body>
+  <script>
+(function landingpage() {
+  console.log('landing page event fires every time you visit this site')
+  dataLayer.push({
+    'event': 'cancelationFlow',
+    'step': 'landingpage',
+    'stepNumber': 1
+  })
+})()
+function recordSteps() {
+  console.log('step 2')
+  dataLayer.push({
+    'event': 'cancelationFlow',
+    'step': 'write message',
+    'stepNumber': 2
+  })
+}
+  </script>
+</html>
+

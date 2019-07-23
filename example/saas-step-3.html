@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+  <script>
+    dataLayer = []
+  </script>
+    <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+      new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+        j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-5KLZJ74');</script>
+    <!-- End Google Tag Manager -->
+    <meta charset="utf-8">
+    <title>SaaS Step 3 - Pipes Google Analytics Duplicator</title>
+    <meta name="author" content="Dimitri Tarasowski">
+    <meta name="description" content="Duplicate Google Analytics hits to Pipes.">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  </head>
+  <body>
+    <!-- Global site tag (gtag.js) - Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-142371309-1"></script>
+    <h1>Saas Step 3 - Pipes Google Analytics Duplicator</h1>
+    <ul>
+      <li><a href="index.html">Dropout</a></li>
+    </ul>
+    <hr>
+    <h2> Eprimo Kündigen </h2>
+    <h3> Step 3 - Kündigung abschicken und account erstellen </h3>
+    <h4> Wie sollen wir deine Kündigung an eprimo schicken?</h4>   
+    <form action="javascript:void(0);">
+      <input type="radio" name="cancel" value="email+brief"> Email und Brief - Nur 3,50€ inkl. MwSt.<br>
+      <br>
+      <input type="radio" name="cancel" value="einwurf"> Einwurf-Einschreiben - Nur 7,50€ inkl. MwSt.<br>
+      <br>
+      <input type="radio" name="cancel" value="nur_email" > Oder nur per Email für 1,00€ kündigen<br>
+      <br>
+      </form>
+      <hr>
+      <h4> Bitte wähle die Zahlungsmöglichkeit </h4>
+    <form action="javascript:void(0);">
+      <input type="radio" name="pay" value="paypal"> Paypal - Mit Klick wirst du zu PayPal weitergeleitet. Bei der Zahlung mit Paypal entstehen keine zusätzlichen Kosten.<br>
+      <br>
+      <input type="radio" name="pay" value="invoice"> Auf Rechnung - Deine Kündigung wird von uns sofort versandt. Dir wird anschließend eine Rechnung per E-Mail zugesandt.<br>
+      <br>
+      <input type="radio" name="pay" value="creditcard"> Kreditkarte - Deine Kreditkarten-Daten werden verschlüsselt verarbeitet. Deine Kündigung wird von uns sofort versandt.<br>
+      <br>
+      </form>
+      <h2> An welche deiner E-Mail Adressen schicken wir den Versandnachweis?</h2>
+    <form action="javascript:void(0);">
+      Email:<br>
+      <input type="text" id="email" name="email" placeholder="Your email...">
+      <br><br>
+      Password:<br>
+      <input type="password" id="pass" name="password" placeholder="Your password...">
+      <br><br>
+      </form>
+    <a href="login.html"><button onclick="recordSteps()" style="width: 200px; height: 50px;">Kündigung abschicken (kostenpflichtig) >></button></a>
+  </body>
+  <script>
+function recordSteps() {
+  console.log('step 4')
+  dataLayer.push({
+    'event': 'cancelationFlow',
+    'step': 'submit cancelation',
+    'stepNumber': 4
+  })
+}
+  </script>
+</html>
+

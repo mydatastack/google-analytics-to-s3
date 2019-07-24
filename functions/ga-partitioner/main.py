@@ -4,7 +4,7 @@ from collections import namedtuple
 from urllib.parse import unquote
 from itertools import groupby
 import boto3
-import time
+import datetime
 import re
 
 s3 = boto3.resource('s3')
@@ -88,7 +88,7 @@ def folder_name_all(*args):
     return f'system_source={args[0]}/tracking_id={args[1]}/data_source={args[2]}/event_type={args[3]}/{args[4]}'
 
 
-def construct_keys(event: dict, data: list) -> list:
+def construct_keys(event: dict, ts: str, data: list) -> list:
      keys = pipe(
                 sns_adapter,
                 get_list,
@@ -115,6 +115,7 @@ def construct_keys(event: dict, data: list) -> list:
                             ds, 
                             event, 
                             event_type,
+                            ts,
                             body) 
                      )
          else:
@@ -131,19 +132,20 @@ def construct_keys(event: dict, data: list) -> list:
                             ds, 
                             event, 
                             event_type,
+                            ts,
                             body) 
                      )
      return with_folder
 
 
-def construct_files(data, ts=time.strftime("%Y-%m-%dT%H:%M:%S%z", time.gmtime())):  
-    bucket, tid, folder, ds, event, event_type, body = data
+def construct_files(data: list) -> ():  
+    bucket, tid, folder, ds, event, event_type, ts, body = data
     key = f'{tid}-{event}_{event_type}-{ts}' if event_type != 'all' else f'{tid}-{event}-{ts}'
     body_json = [json.dumps(record) for record in body]
     new_line_delimited = '\n'.join(body_json)
-    return s3.Object(bucket, 'processed/' + folder + '/' + key).put(Body=new_line_delimited)
+    s3.Object(bucket, 'processed/' + folder + '/' + key).put(Body=new_line_delimited)
 
-def save_to_s3(data: list, ts=time.strftime("%Y-%m-%dT%H:%M:%S%z", time.gmtime())) -> str:
+def save_to_s3(data: list) -> str:
     try:
         operations = [construct_files(slice) for slice in data] 
         return 'success'
@@ -168,7 +170,7 @@ def sns_adapter(event):
         print(e)
         return []
 
-def program(event):
+def program(event, ts):
     return pipe( 
                 sns_adapter,
                 get_list,
@@ -180,12 +182,13 @@ def program(event):
                 take_props,
                 sort_data,
                 group_by_ds,
-                partial(construct_keys, event),
+                partial(construct_keys, event, ts),
              )(event)
 
 def handler(event, ctx):
+    ts = datetime.datetime.utcnow().isoformat()
     try:
-        return save_to_s3(program(event))
+        return save_to_s3(program(event, ts))
     except Exception as e:
         print(e)
         return e 

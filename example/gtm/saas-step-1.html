@@ -28,7 +28,7 @@
     <h2> Eprimo Kündigen </h2>
     <h3> Step 1: Landingpage</h3>
     <p> Kündige deinen Vertrag mit eprimo in nur wenigen Schritten. Rechtswirksam & sofort bestätigt!</p> <p>1. Kündigungsformular auswählen</p> <p>2. Kündigung online unterschreiben</p> <p>3. Versandmethode auswählen & Kündigung versenden </p>
-    <a href="saas-step-2.html" ><button onclick="recordSteps()" style="width: 200px; height: 50px;">Zur Kündigungsvorlage >></button></a>
+    <a href="saas-step-2.html" ><button style="width: 200px; height: 50px;">Zur Kündigungsvorlage >></button></a>
   </body>
   <script>
 (function landingpage() {
@@ -39,14 +39,6 @@
     'stepNumber': 1
   })
 })()
-function recordSteps() {
-  console.log('step 2')
-  dataLayer.push({
-    'event': 'cancelationFlow',
-    'step': 'write message',
-    'stepNumber': 2
-  })
-}
   </script>
 </html>
 

@@ -2,11 +2,7 @@
 <html>
   <head>
   <script>
-    dataLayer = [{
-      'userId': 'volders_12345678910', 
-      'pageCategory': 'login',
-      'visitorType': 'paid'
-    }]
+    dataLayer = window.dataLayer || []
   </script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
@@ -16,7 +12,7 @@
     })(window,document,'script','dataLayer','GTM-5KLZJ74');</script>
     <!-- End Google Tag Manager -->
     <meta charset="utf-8">
-    <title>Saas Step 4 - Pipes Google Analytics Duplicator</title>
+    <title>Profilseite - Pipes Google Analytics Duplicator</title>
     <meta name="author" content="Dimitri Tarasowski">
     <meta name="description" content="Duplicate Google Analytics hits to Pipes.">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -26,13 +22,39 @@
     <script async src="https://www.googletagmanager.com/gtag/js?id=UA-142371309-1"></script>
     <h1>Profilseite - Pipes Google Analytics Duplicator</h1>
     <hr>
-    <h2> Willkommen bei Volders auf deiner Profilseite</h2>
-    <p> Deine Kündigung wurde erfolgreich verschickt. Du bist jetzt bei Volders erfolgreich registriert.</p> 
-    <h3>Hier findest du deine Kündigungsübersicht</h3>
-    <ul>
-      <li>Eprimo Gas: <b style="color:green">gekündigt</b></li>
-      <br>
-    </ul>
-    <a href="index.html"><button style="width: 200px; height: 50px;">Ausloggen >></button></a>
+    <h2>Login</h2>
+    <p> Please login into your account.</p> 
+    <br>
+    <div id="welcome"></div>
+    <br>
+    <form action="javascript:void(0);">
+      Email:<br>
+      <input type="text" id="email" name="email" placeholder="Your name..">
+      <br><br>
+      Password:<br>
+      <input type="password" id="password" name="password" placeholder="Your password..">
+      <br><br>
+      </form>
+    <button onclick="login()" id='login' style="width: 200px; height: 50px;">Login >></button>
+    <div id='addButton'></div>
       </body>
+  <script>
+    const node = document.createTextNode('Welcome! You\'re now logged in')
+    const btn = document.createElement('BUTTON')
+
+    function login() {
+      const email = document.getElementById('email').value
+      dataLayer.push({
+        'event': 'identity',
+        'userId': email, 
+        'pageCategory': 'login',
+        'visitorType': 'registered'
+      })
+      document.getElementById('welcome').appendChild(node)
+      const b = document.getElementById('login')
+      b.parentNode.removeChild(b)
+      btn.innerHTML = '<a href="index.html"><button style="width: 200px; height: 50px;">Logout</button></a>'
+      document.getElementById('addButton').appendChild(btn)
+    }
+  </script>
 </html>

@@ -1,0 +1,290 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+    ServiceName:
+        Type: String
+        Default: pipes
+        Description: Name for the service, used in the code repository, Lambda function, and pipeline names
+    GitHubOAuthToken:
+        Type: String
+        NoEcho: true
+        MinLength: 40
+        MaxLength: 40
+        AllowedPattern: '[a-z0-9]*'
+    GitHubRepoOwner:
+        Type: String
+        Default: pipes
+        AllowedPattern: "[A-Za-z0-9-]+"
+    GitHubRepo:
+        Type: String
+        Default: pipes 
+        AllowedPattern: "[A-Za-z0-9-]+"
+    GitHubBranch:
+        Type: String
+        Default: master
+        AllowedPattern: "[A-Za-z0-9-]+"
+
+Resources:
+    BuildArtifactsBucket:
+        Type: AWS::S3::Bucket
+    CodeBuildServiceRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Action: 
+                      - 'sts:AssumeRole'
+                    Effect: Allow
+                    Principal:
+                      Service:
+                        - codebuild.amazonaws.com
+            Path: /
+            Policies:
+                - PolicyName: CodeBuildAccess
+                  PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                      - Effect: Allow
+                        Resource:
+                          - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ServiceName}_build'
+                          - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${ServiceName}_build:*'
+                        Action:
+                          - 'logs:CreateLogGroup'
+                          - 'logs:CreateLogStream'
+                          - 'logs:PutLogEvents'
+                      - Effect: Allow
+                        Resource:
+                          - !Sub 'arn:aws:s3:::${BuildArtifactsBucket}/*'
+                        Action: 
+                          - 's3:GetObject'
+                          - 's3:GetObjectVersion'
+                          - 's3:PutObject'
+    CodeBuildProject:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Name: 
+              Fn::Sub: '${ServiceName}_build'
+            TimeoutInMinutes: 5
+            Description: Build for Pipes Analytics
+            Artifacts:
+              Type: CODEPIPELINE
+            Environment: 
+                Type: LINUX_CONTAINER
+                ComputeType: BUILD_GENERAL1_SMALL
+                Image: aws/codebuild/standard:2.0
+                EnvironmentVariables:
+                  - Name: BUILD_OUTPUT_BUCKET
+                    Value: 
+                      Ref: BuildArtifactsBucket 
+            ServiceRole: 
+              Fn::GetAtt: [CodeBuildServiceRole, Arn]
+            Source: 
+                Type: CODEPIPELINE
+                BuildSpec: codepipeline/buildspec.yaml
+    
+    
+    # CodePipeline definition and required roles
+    CFNPipelinePolicy:
+        Type: AWS::IAM::ManagedPolicy
+        Properties:
+            Description: CloudFormation Pipeline Execution Policy
+            Path: "/"
+            PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    Effect: Allow
+                    Action: 
+                        - 'cloudformation:CreateStack'
+                        - 'cloudformation:DescribeStacks'
+                        - 'cloudformation:DeleteStack'
+                        - 'cloudformation:UpdateStack'
+                        - 'cloudformation:CreateChangeSet'
+                        - 'cloudformation:ExecuteChangeSet'
+                        - 'cloudformation:DeleteChangeSet'
+                        - 'cloudformation:DescribeChangeSet'
+                        - 'cloudformation:SetStackPolicy'
+                        - 'cloudformation:SetStackPolicy'
+                        - 'cloudformation:ValidateTemplate'
+                        - 'codebuild:StartBuild'
+                        - 'codebuild:BatchGetBuilds'
+                    Resource: "*"
+    CloudFormationExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            Action: 
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+        Path: /
+        ManagedPolicyArns:
+          - 'arn:aws:iam::aws:policy/AdministratorAccess'
+    PipelineExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Action: 
+                    - 'sts:AssumeRole'
+                    Effect: Allow
+                    Principal:
+                      Service: 
+                        - codepipeline.amazonaws.com
+            Path: /
+            ManagedPolicyArns:
+                - 'arn:aws:iam::aws:policy/AWSCodeCommitFullAccess'
+                - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+                - !Ref CFNPipelinePolicy
+            Policies:
+                - PolicyName: CodePipelineAccess
+                  PolicyDocument:
+                    Version: '2012-10-17'
+                    Statement:
+                        - Action:
+                            - 'iam:PassRole'
+                            - 'lambda:InvokeFunction'
+                            - 'lambda:ListFunctions'
+                            - 'lambda:InvokeAsyc'
+                          Effect: Allow
+                          Resource: '*'
+    Pipeline:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore: 
+                Location: !Ref BuildArtifactsBucket
+                Type: S3
+            Name: !Sub ${ServiceName}_pipeline
+            RoleArn: !GetAtt PipelineExecutionRole.Arn
+            Stages:
+                - Name: Source
+                  Actions:
+                    - Name: Source
+                      InputArtifacts: []
+                      ActionTypeId:
+                        Category: Source
+                        Owner: ThirdParty
+                        Provider: GitHub
+                        Version: 1
+                      Configuration:
+                        Owner: 
+                          Ref: GitHubRepoOwner
+                        Repo:
+                          Ref: GitHubRepo
+                        Branch: 
+                          Ref: GitHubBranch
+                        PollForSourceChanges: false
+                        OAuthToken: 
+                          Ref: GitHubOAuthToken
+                      OutputArtifacts:
+                        - Name: SourceZip
+                      RunOrder: 1
+                - Name: Build
+                  Actions:
+                    - Name: CodeBuild
+                      ActionTypeId:
+                        Category: Build
+                        Owner: AWS
+                        Provider: CodeBuild
+                        Version: 1
+                      Configuration:
+                        ProjectName: !Ref CodeBuildProject
+                      InputArtifacts:
+                        - Name: SourceZip
+                      OutputArtifacts:
+                        - Name: BuiltZip
+                - Name: DeployTests
+                  Actions:
+                    - Name: CreateChangeSet
+                      ActionTypeId:
+                        Category: Deploy
+                        Owner: AWS
+                        Provider: CloudFormation
+                        Version: 1
+                      Configuration:
+                        ActionMode: CHANGE_SET_REPLACE
+                        RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                        StackName: !Sub '${ServiceName}-dev'
+                        ChangeSetName: !Sub '${ServiceName}-changeset-dev'
+                        TemplatePath: BuiltZip::app-output_sam.yaml
+                        Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                        ParameterOverrides: !Sub '{ "Stage": "dev", "Name": "${ServiceName}"}'
+                      InputArtifacts:
+                        - Name: BuiltZip
+                      RunOrder: 1
+                    - Name: ExecuteChangeSet
+                      ActionTypeId:
+                        Category: Deploy
+                        Owner: AWS
+                        Provider: CloudFormation
+                        Version: 1
+                      Configuration:
+                        ActionMode: CHANGE_SET_EXECUTE
+                        RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                        StackName: !Sub '${ServiceName}-dev'
+                        ChangeSetName: !Sub '${ServiceName}-changeset-dev'
+                      OutputArtifacts:
+                        - Name: !Sub '${ServiceName}DevelopmentChangeSet'
+                      RunOrder: 2
+                - Name: Staging
+                  Actions:
+                    - Name: DeploymentApproval
+                      ActionTypeId:
+                        Category: Approval
+                        Owner: AWS
+                        Provider: Manual
+                        Version: 1
+                      RunOrder: 1
+                    - Name: CreateChangeSet
+                      ActionTypeId:
+                        Category: Deploy
+                        Owner: AWS
+                        Provider: CloudFormation
+                        Version: 1
+                      Configuration:
+                        ActionMode: CHANGE_SET_REPLACE
+                        RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                        StackName: !Sub '${ServiceName}-staging'
+                        ChangeSetName: !Sub '${ServiceName}-changeset-staging'
+                        TemplatePath: BuiltZip::app-output_sam.yaml
+                        Capabilities: CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                        ParameterOverrides: !Sub '{ "Stage": "staging", "Name": "${ServiceName}"}'
+                      InputArtifacts:
+                        - Name: BuiltZip
+                      RunOrder: 2
+                    - Name: ExecuteChangeSet
+                      ActionTypeId:
+                        Category: Deploy
+                        Owner: AWS
+                        Provider: CloudFormation
+                        Version: 1
+                      Configuration:
+                        ActionMode: CHANGE_SET_EXECUTE
+                        RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                        StackName: !Sub '${ServiceName}-staging'
+                        ChangeSetName: !Sub '${ServiceName}-changeset-staging'
+                      OutputArtifacts:
+                        - Name: !Sub '${ServiceName}ProdChangeSet'
+                      RunOrder: 3
+
+    GitHubWebhook:
+      Type: AWS::CodePipeline::Webhook
+      Properties:
+        Authentication: GITHUB_HMAC
+        AuthenticationConfiguration:
+          SecretToken: 
+            Ref: GitHubOAuthToken
+        RegisterWithThirdParty: 'true'
+        Filters:
+          - JsonPath: "$.ref"
+            MatchEquals: refs/heads/master
+        TargetPipeline:
+          Ref: Pipeline 
+        TargetAction: Source
+        TargetPipelineVersion:
+          Fn::GetAtt: [Pipeline, Version]

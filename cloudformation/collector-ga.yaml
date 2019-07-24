@@ -1,0 +1,344 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Google Analytics Duplicator
+
+Parameters:
+  Name:
+    Type: String
+    Default: ga_collector
+  Stage:
+    Type: String
+    Default: dev
+  AdminEmail:
+    Type: String
+    Default: dimitri+pipes@tarasowski.de
+  FallbackEmail:
+    Type: String
+    Default: dimitri+pipes2@tarasowski.de
+  S3AlarmPeriod:
+    Type: String
+    Default: 60
+
+Resources:
+
+  DataBucket:
+    DependsOn:
+      - BucketPermission
+    Type: AWS::S3::Bucket
+    Properties:
+      NotificationConfiguration:
+        TopicConfigurations:
+          - Event: 's3:ObjectCreated:Put'
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: raw/ga/
+            Topic:
+              Ref: BucketEventsTopic
+              
+  BucketPermission:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: BucketTopicPolicyGA
+        Version: 2012-10-17
+        Statement:
+          - Sid: GA001 
+            Effect: Allow
+            Action: 
+              - sns:Publish
+            Resource:
+              Ref: BucketEventsTopic
+            Principal: 
+              Service: 's3.amazonaws.com'
+      Topics:
+        - Ref: BucketEventsTopic
+
+  BucketEventsTopic:
+    Type: AWS::SNS::Topic
+
+  KinesisFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - firehose.amazonaws.com
+          Action:
+          - sts:AssumeRole
+
+  S3DeliveryPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: firehose_s3delivery_policy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:GetBucketLocation
+              - s3:GetObject
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+              - s3:PutObject
+            Resource:
+              - Fn::GetAtt: [ DataBucket , Arn ]
+              - Fn::Join:
+                - ""
+                - - Fn::GetAtt: [ DataBucket , Arn ]
+                  - "/*"
+      Roles:
+        - Ref: KinesisFirehoseRole
+
+  InvokeLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: firehose_lambda_policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - lambda:InvokeFunction
+            Resource:
+              Fn::GetAtt: [FirehoseProcessorFunction, Arn]
+      Roles:
+        - Ref: KinesisFirehoseRole
+
+  FirehoseProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs10.x 
+      MemorySize: 128
+      Timeout: 60
+      ReservedConcurrentExecutions: 1 # remove when the function is safe
+      Handler: index.handler 
+      CodeUri: ../functions/frh-processor/
+
+  PartitionerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 60
+      ReservedConcurrentExecutions: 1 # remove when the function is safe
+      Handler: main.handler
+      CodeUri: ../functions/ga-partitioner/
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:AbortMultipartUpload
+                - s3:GetBucketLocation
+                - s3:GetObject
+                - s3:ListBucket
+                - s3:ListBucketMultipartUploads
+                - s3:PutObject
+              Resource:
+                - Fn::GetAtt: [ DataBucket , Arn ]
+                - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt: [ DataBucket , Arn ]
+                    - "/*"
+
+  PartitionerFunctionSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Fn::GetAtt: [PartitionerFunction, Arn]
+      TopicArn:
+        Ref: BucketEventsTopic
+      Protocol: lambda
+
+  PartitionerInvokePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      Principal: 'sns.amazonaws.com'
+      SourceArn: 
+        Ref: BucketEventsTopic
+      FunctionName:
+        Fn::GetAtt: [PartitionerFunction, Arn]
+
+  EventFirehose:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      ExtendedS3DestinationConfiguration:
+        BucketARN:
+          Fn::GetAtt: [ DataBucket, Arn ]
+        BufferingHints:
+          IntervalInSeconds: 60
+          SizeInMBs: 10
+        CompressionFormat: UNCOMPRESSED
+        Prefix: "raw/ga/year=!{timestamp:YYYY}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
+        ErrorOutputPrefix: "errors/!{firehose:random-string}/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd}/"
+        RoleARN:
+          Fn::GetAtt: [ KinesisFirehoseRole, Arn ]
+        ProcessingConfiguration:
+          Enabled: true
+          Processors:
+            - Parameters:
+              - ParameterName: LambdaArn
+                ParameterValue: 
+                  Fn::GetAtt: [FirehoseProcessorFunction, Arn]
+              Type: Lambda
+
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name:
+        Fn::Join:
+          - ""
+          - - Ref: AWS::StackName
+            - "-api"
+
+# Resources ########
+#
+# #################
+
+  GoogleAnalyticsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ApiGatewayRestApi
+      ParentId: 
+        Fn::GetAtt: [ApiGatewayRestApi, RootResourceId]
+      PathPart: com.google.analytics
+
+  GoogleAnalyticsVersion:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId:
+        Ref: ApiGatewayRestApi
+      ParentId: 
+        Ref: GoogleAnalyticsResource
+      PathPart: v1
+    
+# Methods ########
+#
+# ###############  
+
+  ApiGatewayPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      ResourceId: 
+        Ref: GoogleAnalyticsVersion 
+      ApiKeyRequired: false 
+      AuthorizationType: NONE
+      HttpMethod: POST
+      Integration:
+        Type: AWS #signal that we want to use an internal AWS service
+        Credentials:
+          Fn::GetAtt: [ GatewayRole, Arn ] #role for the API to actually invoke the firehose
+        Uri:
+          Fn::Join:
+            - ""
+            - - "arn:aws:apigateway:"
+              - Ref: AWS::Region
+              - ":firehose:action/PutRecord" #this URI basically describes the service and action I want to invoke.
+        IntegrationHttpMethod: POST #for kinesis using POST is required
+        RequestTemplates:
+          text/plain: !Sub | 
+            #set( $system_source = "system_source")
+            #set( $system_source_val = "ga")
+            #set( $system_version = "system_version")
+            #set( $system_version_val = "1")
+            #set( $key = "api_key" )
+            #set( $key_ = $context.identity.apiKey )
+            #set( $trace_id_val = $input.params().get("header").get("X-Amzn-Trace-Id"))#set( $bodyname = "body" )
+            #set( $trace_id = "trace_id")
+            #set( $received_at_apig = "received_at_apig")
+            #set( $received_at_apig_val = $context.requestTimeEpoch)
+            #set( $body = "body")
+            #set( $body_val = $input.body)
+            #set( $message_id = "message_id")
+            #set( $message_id_val = $context.requestId)
+            #set( $ip = "ip")
+            #set( $ip_val = $context.identity.sourceIp)
+            #set( $user_agent = "user_agent")
+            #set( $user_agent_val = $context.identity.userAgent)
+            #set( $quote = '"' )
+            #set( $b64 = $util.base64Encode("{$quote$system_source$quote:$quote$system_source_val$quote,$quote$system_version$quote:$quote$system_version_val$quote,$quote$key$quote:$quote$key_val$quote,$quote$message_id$quote:$quote$message_id_val$quote,$quote$trace_id$quote:$quote$trace_id_val$quote,$quote$received_at_apig$quote:$quote$received_at_apig_val$quote,$quote$ip$quote:$quote$ip_val$quote, $quote$user_agent$quote:$quote$user_agent_val$quote,$quote$body$quote:$quote$body_val$quote}"))
+            {
+             "DeliveryStreamName": "${EventFirehose}", 
+             "Record": {"Data": "$b64"}
+            }
+        RequestParameters:
+          integration.request.header.Content-Type: "'application/x-amz-json-1.1'"
+        IntegrationResponses:
+          - StatusCode: 200 #create a default response for the caller
+            ResponseTemplates:
+              application/json: '{"status":"OK"}'
+      MethodResponses:
+        - StatusCode: 200
+      RestApiId: !Ref ApiGatewayRestApi
+
+  GatewayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: GatewayRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - firehose:PutRecord
+              Resource: "*"
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayPostMethod
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: 
+        Fn::Sub: ${Stage}
+
+  GoogleAnalyticsCollectorMonitoring:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: ./collector-ga-monitoring.yaml
+      Parameters:
+        Name:
+          Ref: Name
+        Stage:
+          Ref: Stage
+        AdminEmail:
+          Ref: AdminEmail
+        FallbackEmail:
+          Ref: FallbackEmail
+        S3AlarmPeriod:
+          Ref: S3AlarmPeriod
+        BucketEventsTopic:
+          Ref: BucketEventsTopic
+Outputs:
+  CollectorEndpoint:
+    Description: URL of the endpoint that should be used with Google Analytics Duplicator 
+    Value:
+      Fn::Join:
+        - ""
+        - - https://
+          - Ref: ApiGatewayRestApi 
+          - '.execute-api.'
+          - Ref: 'AWS::Region'
+          - '.amazonaws.com/'
+          - Fn::Sub: ${Stage} 
+          - "/"
+

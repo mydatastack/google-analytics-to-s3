@@ -1,0 +1,22 @@
+{
+    "Records": [
+        {
+            "EventSource": "aws:sns",
+            "EventVersion": "1.0",
+            "EventSubscriptionArn": "arn:aws:sns:eu-central-1:170707408894:tarasowski-ga-dev-machine-BucketEventsTopic-15RWESN66QU10:74bd62da-9207-482a-a6a8-a5f1e7e4cf18",
+            "Sns": {
+                "Type": "Notification",
+                "MessageId": "fd0b388d-9952-5bc8-876d-6d227c3a7847",
+                "TopicArn": "arn:aws:sns:eu-central-1:170707408894:tarasowski-ga-dev-machine-BucketEventsTopic-15RWESN66QU10",
+                "Subject": "Amazon S3 Notification",
+                "Message": "{\"Records\":[{\"eventVersion\":\"2.1\",\"eventSource\":\"aws:s3\",\"awsRegion\":\"eu-central-1\",\"eventTime\":\"2019-07-22T16:24:06.383Z\",\"eventName\":\"ObjectCreated:Put\",\"userIdentity\":{\"principalId\":\"AWS:AROASPPXUK77JM4RV7GFY:AWSFirehoseToS3\"},\"requestParameters\":{\"sourceIPAddress\":\"18.197.69.57\"},\"responseElements\":{\"x-amz-request-id\":\"7FDB233D2F308F68\",\"x-amz-id-2\":\"DpcbHlMvexGnbzQtrA0zOB+hOrVnzSQdxDnezXpJ5Wyd9Lk/XCrujQdpYEZtyg4DxMWEzLt8D+0=\"},\"s3\":{\"s3SchemaVersion\":\"1.0\",\"configurationId\":\"c1894289-b759-4e94-af61-9b1cb4fa7638\",\"bucket\":{\"name\":\"tarasowski-ga-dev-machine-databucket-12wptv8xxz8px\",\"ownerIdentity\":{\"principalId\":\"A1F0J71VTLDZQJ\"},\"arn\":\"arn:aws:s3:::tarasowski-ga-dev-machine-databucket-12wptv8xxz8px\"},\"object\":{\"key\":\"raw/ga/year%3D2019/month%3D07/day%3D22/hour%3D16/tarasowski-ga-dev-machine-EventFirehose-VIHFD38TKLW2-1-2019-07-22-16-22-23-8b1bd7d7-c82f-4c95-afe8-6581574e80f5\",\"size\":43160,\"eTag\":\"5d34b91f4ec7e3ae82d396d89da4eb61\",\"sequencer\":\"005D35E32647BB56F3\"}}}]}",
+                "Timestamp": "2019-07-22T16:24:08.118Z",
+                "SignatureVersion": "1",
+                "Signature": "VzBXW3EwMBye7SpdT5MsqY12VdyPpOj3dhqslj2C3BF7Wz7QIUvQqWkgC/56d4v/YqmO38M0+7Wt/BgcbgCw+nP/iJOEyhGV0F2AZ0FCMcMPTwMRoPSaanoWb8MRT8PfBy2vLYrpJTS4Z5HfNmVWBlUPrDo2D7Faw/9Y00sik683F4qhKv8VRQlmM5sugxrFa1k19c3QXYpue0/7te69JOd6XdjsH/VZO1OnpYdLx5wUP9uLUi103/t+i4y4L20X+DqaTM0JMNSQg6xjbOItSI9TeeFwCGZ7fHGeQdlSmz/KW6PsM6hb/ebSe5Ny5UCL8mDnweRswxWqSPEzYvJq7g==",
+                "SigningCertUrl": "https://sns.eu-central-1.amazonaws.com/SimpleNotificationService-6aad65c2f9911b05cd53efda11f913f9.pem",
+                "UnsubscribeUrl": "https://sns.eu-central-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:eu-central-1:170707408894:tarasowski-ga-dev-machine-BucketEventsTopic-15RWESN66QU10:74bd62da-9207-482a-a6a8-a5f1e7e4cf18",
+                "MessageAttributes": {}
+            }
+        }
+    ]
+}

@@ -38,7 +38,7 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 
 2. Step: Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
 
-![gtm pipes](./img/gtm-pipes.png)
+![gtm pipes](./exampe/readme/gtm-pipes.png)
 
 ---
 
@@ -49,6 +49,7 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 ### Additional Information
 * Google Analytics Duplicator Endpoint
 
-![duplicator](./img/cf-endpoint.png)
+![duplicator](./example/readme/cf-endpoint.png)
 
 * Inspired by Simo Ahava: [Simo's blog](https://www.simoahava.com)
+

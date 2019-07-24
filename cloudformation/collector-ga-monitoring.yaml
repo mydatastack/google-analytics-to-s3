@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Google Analytics Duplicator CloudWatch Monitoring
+
+Parameters:
+  Name:
+    Type: String
+  Stage:
+    Type: String
+  AdminEmail:
+    Type: String
+  FallbackEmail:
+    Type: String
+  S3AlarmPeriod:
+    Type: String
+  BucketEventsTopic:
+    Type: String
+
+Resources:
+
+  EmitMetricsFunctionSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Fn::GetAtt: [EmitMetricsFunction, Arn]
+      TopicArn:
+        Ref: BucketEventsTopic
+      Protocol: lambda
+
+  LambdaInvokePermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      Principal: 'sns.amazonaws.com'
+      SourceArn: 
+        Ref: BucketEventsTopic
+      FunctionName:
+        Fn::GetAtt: [EmitMetricsFunction, Arn]
+
+  AlarmLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: "${Name}-lambda-put-metrics-role-${Stage}"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+
+  AlarmLambdaPolicy:
+    DependsOn:
+      - AlarmLambdaRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: 
+        Fn::Sub: "${Name}-lambda-put-metrics-${Stage}"
+      Roles:
+        - Ref: AlarmLambdaRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - cloudwatch:PutMetricData
+            Resource: '*'
+  
+  EmitMetricsFunction:
+    Type: AWS::Serverless::Function 
+    Properties:
+      Handler: main.handler
+      Runtime: python3.7
+      Timeout: 5
+      MemorySize: 128
+      Role:
+        Fn::GetAtt: [AlarmLambdaRole, Arn]
+      CodeUri: ../functions/monitoring/s3
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+
+  AlarmTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: Id1
+        Version: 2012-10-17
+        Statement:
+          - Sid: Sid1
+            Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: 'sns:Publish'
+            Resource:
+              Ref: AlarmTopic
+            Condition:
+              StringEquals:
+                'AWS:SourceOwner':
+                  Ref: 'AWS::AccountId'
+      Topics:
+        - Ref: AlarmTopic
+
+  EmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: AdminEmail
+      Protocol: email
+      TopicArn:
+        Ref: AlarmTopic
+
+  FallBackEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: FallbackEmail
+      Protocol: email
+      TopicArn:
+        Ref: AlarmTopic
+
+  S3MissingDataAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: Google Analytics Data in S3 Bucket of Pipes
+      AlarmDescription: Trigger alarm if no new incoming Google Analytics data in S3 bucket.
+      AlarmActions: 
+        - Ref: AlarmTopic
+      MetricName: NewObjectAdded
+      Dimensions:
+        - Name: S3
+          Value: successfully
+      Namespace: Pipes
+      Statistic: Sum
+      Period: 
+        Ref: S3AlarmPeriod
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+

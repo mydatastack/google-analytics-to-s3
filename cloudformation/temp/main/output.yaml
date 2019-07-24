@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Pipes infrastructure as code
+Parameters:
+  Name:
+    Type: String
+    Description: The name of the api
+    MinLength: 3
+    MaxLength: 30
+    Default: pipes
+  Stage:
+    Type: String
+    Description: The stage of the api
+    MinLength: 3
+    MaxLength: 20
+    Default: local
+  AdminEmail:
+    Type: String
+    Description: An email of the person that should be notified in case missing data
+    Default: dimitri+pipes@tarasowski.de
+  FallbackEmail:
+    Type: String
+    Description: An email of the person that should be notified in case of missing
+      data
+    Default: dimitri+pipes2@tarasowski.de
+  S3AlarmPeriod:
+    Type: String
+    Description: Provide a time value in seconds when the alarm should trigger when
+      new data is missing in S3
+    Default: 60
+Resources:
+  GoogleAnalyticsCollectorStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.eu-central-1.amazonaws.com/pipes-cf-artifacts/29082cde78dac4a6613f78dcac64d2ba.template
+      Parameters:
+        Name:
+          Ref: Name
+        Stage:
+          Ref: Stage
+        AdminEmail:
+          Ref: AdminEmail
+        FallbackEmail:
+          Ref: FallbackEmail
+        S3AlarmPeriod:
+          Ref: S3AlarmPeriod

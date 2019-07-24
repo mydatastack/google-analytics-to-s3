@@ -275,8 +275,16 @@ Resources:
           - StatusCode: 200 #create a default response for the caller
             ResponseTemplates:
               application/json: '{"status":"OK"}'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'" 
       MethodResponses:
         - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
       RestApiId: !Ref ApiGatewayRestApi
 
   GatewayRole:

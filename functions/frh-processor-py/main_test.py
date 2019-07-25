@@ -13,7 +13,7 @@ class TestHandler(unittest.TestCase):
             except:
                 print('payload.json can\'t be parsed')
             else:
-                self.assertEqual(len(handler(event, None)), 11)
+                self.assertEqual(len(handler(event, None).get('records')), 11)
 
 
 if __name__ == '__main__':

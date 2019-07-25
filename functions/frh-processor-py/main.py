@@ -118,7 +118,7 @@ def json_b64_encode(xs: list) -> list:
                 {
                  'recordId': record['recordId'],
                  'result': record['result'],
-                 'data': b64encode((json.dumps(record['data']) + '\n').encode())
+                 'data': b64encode(json.dumps(record['data']).encode('utf-8') + b'\n').decode('utf-8')
                 }
                 for record in xs
                 ]
@@ -144,6 +144,7 @@ def program(event: dict) -> list:
             json_b64_encode,
            ]) (event)
 
-def handler(event: dict, ctx: dict) -> list:
-    return program(event) 
+def handler(event: dict, ctx: dict) -> dict:
+    records = program(event)
+    return {'records': records} 
 

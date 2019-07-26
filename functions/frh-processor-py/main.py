@@ -40,20 +40,14 @@ def detect(user_agent: str) -> dict:
     if is_bot:
         return {'is_bot': True}
     else:
-        client_name = device.client_name()
-        client_type = device.client_type()
-        client_version = device.client_version()
-        os_name = device.os_name()
-        os_version = device.os_version()
-        device_type = device.device_type()
         return {
                 'is_bot': False, 
-                'client_name': client_name, 
-                'client_type': client_type,
-                'client_version': client_version,
-                'os_name': os_name,
-                'os_version': os_version,
-                'device_type': device_type,
+                'client_name': device.client_name(), 
+                'client_type': device.client_type(),
+                'client_version': device.client_version(),
+                'os_name': device.os_name(),
+                'os_version': device.os_version(),
+                'device_type': device.device_type(),
                 } 
 
 def parse_user_agent(xs: list) -> list:
@@ -67,25 +61,16 @@ def extract_ip_data(reader, user_agent: dict, ip: str) -> dict:
         return {'ip': ip}
     else:
         location = reader.get(ip)
-        city = location['city']['names']['en'] 
-        country = location['country']['names']['en'] 
-        country_iso = location['country']['iso_code']
-        continent_code = location['continent']['code']
-        continent_name = location['continent']['names']['en']
-        longitude = location['location']['longitude']
-        latitude = location['location']['latitude']
-        timezone = location['location']['time_zone']
-        postal_code = location['postal']['code']
         return {
-                'city': city,
-                'postal_code': postal_code,
-                'country': country,
-                'country_iso': country_iso,
-                'continent_code': continent_code,
-                'continent_name': continent_name,
-                'longitude': longitude,
-                'latitude': latitude,
-                'timezone': timezone
+                'city': location['city']['names']['en'],
+                'postal_code': location['postal']['code'],
+                'country': location['country']['names']['en'],
+                'country_iso': location['country']['iso_code'],
+                'continent': location['continent']['names']['en'],
+                'continent_code': location['continent']['code'],
+                'longitude': location['location']['longitude'],
+                'latitude': location['location']['latitude'],
+                'timezone': location['location']['time_zone']
                 } 
 
 def ip_lookup(xs: list) -> list:

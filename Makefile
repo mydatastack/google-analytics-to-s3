@@ -24,6 +24,7 @@ ga_deploy: validate
 	@rm -rf ./cloudformation/temp/ga && mkdir -p ./cloudformation/temp/ga
 	@aws cloudformation package --template-file ./cloudformation/$(GA_STACK_FILE) --output-template-file ./cloudformation/temp/ga/output.yaml --s3-bucket $(BUCKET) --region eu-central-1
 	@aws cloudformation deploy --template-file ./cloudformation/temp/ga/output.yaml --stack-name $(GA_STACKNAME) --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --region eu-central-1
+	@rm -rf ./cloudformation/temp
 
 monitoring_deploy: validate
 	@if [ ! -d './cloudformation/temp/monitoring' ]; then \
@@ -32,6 +33,7 @@ monitoring_deploy: validate
 	@rm -rf ./cloudformation/temp/monitoring && mkdir -p ./cloudformation/temp/monitoring
 	@aws cloudformation package --template-file ./cloudformation/$(MONITORING_TEMPLATE) --output-template-file ./cloudformation/temp/monitoring/output.yaml --s3-bucket $(BUCKET) --region eu-central-1
 	@aws cloudformation deploy --template-file ./cloudformation/temp/monitoring/output.yaml --stack-name $(MONITORING_STACKNAME) --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --region eu-central-1
+	@rm -rf ./cloudformation/temp
 
 create_bucket:
 	aws s3api create-bucket --bucket $(BUCKET) --region eu-central-1 --create-bucket-configuration LocationConstraint=eu-central-1
@@ -43,4 +45,5 @@ deploy: validate
 	@rm -rf ./cloudformation/temp/main && mkdir -p ./cloudformation/temp/main
 	@aws cloudformation package --template-file ./cloudformation/$(MAIN_TEMPLATE) --output-template-file ./cloudformation/temp/main/output.yaml --s3-bucket $(BUCKET) --region eu-central-1
 	@aws cloudformation deploy --template-file ./cloudformation/temp/main/output.yaml --stack-name $(MAIN_STACKNAME) --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --region eu-central-1
+	@rm -rf ./cloudformation/temp
 

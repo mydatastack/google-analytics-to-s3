@@ -138,7 +138,7 @@ def construct_keys(event: dict, ts: str, data: list) -> list:
      return with_folder
 
 
-def construct_files(data: list) -> ():  
+def construct_files(data: list) -> None:  
     bucket, tid, folder, ds, event, event_type, ts, body = data
     key = f'{tid}-{event}_{event_type}-{ts}' if event_type != 'all' else f'{tid}-{event}-{ts}'
     body_json = [json.dumps(record) for record in body]

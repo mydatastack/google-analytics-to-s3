@@ -5,12 +5,12 @@ from device_detector import SoftwareDetector
 from base64 import b64decode, b64encode
 import maxminddb
 
-pipe = lambda fns: lambda x: reduce(lambda v, fn: fn(v), fns, x) 
+pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x) 
 
 def get_prop(prop: str, record: dict) -> list:
     return record[prop]
 
-def decode_records(record: dict) -> dict:
+def decode_records(record: dict) -> tuple:
     try:
         recordId = record['recordId']
         data = record['data']

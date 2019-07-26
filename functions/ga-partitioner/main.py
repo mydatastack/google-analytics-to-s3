@@ -8,7 +8,7 @@ import datetime
 import re
 
 s3 = boto3.resource('s3')
-pipe = lambda *args: lambda x: reduce(lambda a, fn: fn(a), args, x)
+pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
 S3Object = namedtuple('S3MetaData', ('bucket', 'key'))
 
@@ -171,7 +171,7 @@ def sns_adapter(event):
         return []
 
 def program(event, ts):
-    return pipe( 
+    return pipe([ 
                 sns_adapter,
                 get_list,
                 get_s3metadata,
@@ -183,7 +183,7 @@ def program(event, ts):
                 sort_data,
                 group_by_ds,
                 partial(construct_keys, event, ts),
-             )(event)
+                ])(event)
 
 def handler(event, ctx):
     ts = datetime.datetime.utcnow().isoformat()

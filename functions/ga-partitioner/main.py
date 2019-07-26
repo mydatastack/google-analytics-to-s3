@@ -52,7 +52,7 @@ def decode_json(data: list) -> list:
             json.loads(line)
             for line in data
            ]
-def get_valid_filename(s):
+def get_valid_filename(s: str) -> str:
     s = str(s).strip().replace(' ', '_')
     return re.sub(r'(?u)[^-\w.]', '', s).lower()[:50]
 
@@ -81,10 +81,10 @@ def group_by_ds(data: list) -> list:
 def sort_data(data: list) -> list:
     return sorted(data, key=lambda t: (t[0],t[1],t[2],t[3])) 
 
-def folder_name_events(*args):
+def folder_name_events(*args: list) -> str:
     return f'system_source={args[0]}/tracking_id={args[1]}/data_source={args[2]}/event_type={args[3]}_{args[4]}/{args[5]}'
 
-def folder_name_all(*args):
+def folder_name_all(*args: list) -> str:
     return f'system_source={args[0]}/tracking_id={args[1]}/data_source={args[2]}/event_type={args[3]}/{args[4]}'
 
 
@@ -154,7 +154,7 @@ def save_to_s3(data: list) -> str:
         print(e) 
         return e
 
-def sns_adapter(event):
+def sns_adapter(event: dict) -> list:
     records = event['Records']
     messages = [record['Sns']['Message'] for record in records]
     try:
@@ -170,7 +170,7 @@ def sns_adapter(event):
         print(e)
         return []
 
-def program(event, ts):
+def program(event: dict, ts: str) -> str:
     return pipe([ 
                 sns_adapter,
                 get_list,
@@ -185,7 +185,7 @@ def program(event, ts):
                 partial(construct_keys, event, ts),
                 ])(event)
 
-def handler(event, ctx):
+def handler(event: dict, ctx) -> str:
     ts = datetime.datetime.utcnow().isoformat()
     try:
         return save_to_s3(program(event, ts))

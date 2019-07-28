@@ -193,3 +193,14 @@ def handler(event: dict, ctx) -> str:
         print(e)
         return e 
         
+if __name__ == '__main__':
+    import unittest
+    class TestHandler(unittest.TestCase):
+        def test_read_file_data(self):
+            pass
+        def test_run_handler(self):
+            with open('payload_sns.json') as myfile:
+                event = json.load(myfile)
+                self.assertEqual(handler(event, None), 'success')
+
+    unittest.main()

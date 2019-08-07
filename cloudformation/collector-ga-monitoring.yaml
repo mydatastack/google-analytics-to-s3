@@ -41,7 +41,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName:
-        Fn::Sub: "${Name}-lambda-put-metrics-role-${Stage}"
+        Fn::Sub: '${Name}-lambda-role-${Stage}'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -57,8 +57,8 @@ Resources:
       - AlarmLambdaRole
     Type: AWS::IAM::Policy
     Properties:
-      PolicyName: 
-        Fn::Sub: "${Name}-lambda-put-metrics-${Stage}"
+      PolicyName:
+        Fn::Sub: '${Name}-lambda-policy-${Stage}'
       Roles:
         - Ref: AlarmLambdaRole
       PolicyDocument:
@@ -128,7 +128,8 @@ Resources:
   S3MissingDataAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: Google Analytics Data in S3 Bucket of Pipes
+      AlarmName: 
+        Fn::Sub: 'Google-Analytics-Missing-Data-${Name}-${Stage}'
       AlarmDescription: Trigger alarm if no new incoming Google Analytics data in S3 bucket.
       AlarmActions: 
         - Ref: AlarmTopic

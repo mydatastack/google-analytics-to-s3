@@ -9,6 +9,8 @@ MONITORING_STACKNAME=tarasowski-ga-monitoring-dev-machine
 MAIN_TEMPLATE=main.yaml
 MAIN_STACKNAME=tarasowski-main-dev-machine
 REGION=eu-central-1
+DLD_TEMPLATE=main.yaml
+DLD_STACKNAME=dld-berlin-pilot-tarasowski
 #-----
 
 validate:
@@ -47,3 +49,11 @@ deploy: validate
 	@aws cloudformation deploy --template-file ./cloudformation/temp/main/output.yaml --stack-name $(MAIN_STACKNAME) --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --region eu-central-1
 	@rm -rf ./cloudformation/temp
 
+dld_deploy: validate
+	@if [ ! -d './cloudformation/temp/dld' ]; then \
+		 mkdir -p ./cloudformation/temp/dld; \
+	fi
+	@rm -rf ./cloudformation/temp/dld && mkdir -p ./cloudformation/temp/dld
+	@aws cloudformation package --template-file ./cloudformation/$(DLD_TEMPLATE) --output-template-file ./cloudformation/temp/dld/output.yaml --s3-bucket $(BUCKET) --region eu-central-1
+	@aws cloudformation deploy --template-file ./cloudformation/temp/dld/output.yaml --stack-name $(DLD_STACKNAME) --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND --region eu-central-1
+	@rm -rf ./cloudformation/temp/dld

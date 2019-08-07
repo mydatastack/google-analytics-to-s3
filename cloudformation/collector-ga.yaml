@@ -249,9 +249,8 @@ Resources:
             #set( $system_source_val = "ga")
             #set( $system_version = "system_version")
             #set( $system_version_val = "1")
-            #set( $key = "api_key" )
-            #set( $key_ = $context.identity.apiKey )
-            #set( $trace_id_val = $input.params().get("header").get("X-Amzn-Trace-Id"))#set( $bodyname = "body" )
+            #set( $trace_id_val = $input.params().get("header").get("X-Amzn-Trace-Id"))
+            #set( $bodyname = "body" )
             #set( $trace_id = "trace_id")
             #set( $received_at_apig = "received_at_apig")
             #set( $received_at_apig_val = $context.requestTimeEpoch)
@@ -264,7 +263,7 @@ Resources:
             #set( $user_agent = "user_agent")
             #set( $user_agent_val = $context.identity.userAgent)
             #set( $quote = '"' )
-            #set( $b64 = $util.base64Encode("{$quote$system_source$quote:$quote$system_source_val$quote,$quote$system_version$quote:$quote$system_version_val$quote,$quote$key$quote:$quote$key_val$quote,$quote$message_id$quote:$quote$message_id_val$quote,$quote$trace_id$quote:$quote$trace_id_val$quote,$quote$received_at_apig$quote:$quote$received_at_apig_val$quote,$quote$ip$quote:$quote$ip_val$quote, $quote$user_agent$quote:$quote$user_agent_val$quote,$quote$body$quote:$quote$body_val$quote}"))
+            #set( $b64 = $util.base64Encode("{$quote$system_source$quote:$quote$system_source_val$quote,$quote$system_version$quote:$quote$system_version_val$quote,$quote$message_id$quote:$quote$message_id_val$quote,$quote$trace_id$quote:$quote$trace_id_val$quote,$quote$received_at_apig$quote:$quote$received_at_apig_val$quote,$quote$ip$quote:$quote$ip_val$quote, $quote$user_agent$quote:$quote$user_agent_val$quote,$quote$body$quote:$quote$body_val$quote}"))
             {
              "DeliveryStreamName": "${EventFirehose}", 
              "Record": {"Data": "$b64"}
@@ -348,5 +347,5 @@ Outputs:
           - Ref: 'AWS::Region'
           - '.amazonaws.com/'
           - Fn::Sub: ${Stage} 
-          - "/"
+          - "/com.google.analytics/v1"
 

@@ -347,5 +347,5 @@ Outputs:
           - Ref: 'AWS::Region'
           - '.amazonaws.com/'
           - Fn::Sub: ${Stage} 
-          - "/com.google.analytics/v1"
+          - "/"
 

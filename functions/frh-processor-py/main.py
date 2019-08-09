@@ -127,6 +127,7 @@ def program(event: dict) -> list:
             ip_lookup,
             convert_tuple_to_dict, 
             json_b64_encode,
+            (lambda x: print(x) or x)
            ]) (event)
 
 def handler(event: dict, ctx: dict) -> dict:

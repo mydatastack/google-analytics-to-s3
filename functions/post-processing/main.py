@@ -79,15 +79,15 @@ def extract_ip_data(reader, user_agent: dict, ip: str) -> dict:
             location = reader.get(ip)
         except Exception as e:
             return {
-                    'city': 'n/a',
-                    'postal_code': 'n/a', 
-                    'country': 'n/a', 
-                    'country_iso': 'n/a', 
-                    'continent': 'n/a', 
-                    'continent_code': 'n/a',
-                    'longitude': 'n/a', 
-                    'latitude': 'n/a', 
-                    'timezone': 'n/a' 
+                    'city': 'NaN',
+                    'postal_code': 'NaN', 
+                    'country': 'NaN', 
+                    'country_iso': 'NaN', 
+                    'continent': 'NaN', 
+                    'continent_code': 'NaN',
+                    'longitude': 'NaN', 
+                    'latitude': 'NaN', 
+                    'timezone': 'NaN' 
                     } 
         else:
             try: 
@@ -104,15 +104,15 @@ def extract_ip_data(reader, user_agent: dict, ip: str) -> dict:
                         } 
             except KeyError as e:
                 return {
-                        'city': 'n/a',
-                        'postal_code': 'n/a', 
-                        'country': 'n/a', 
-                        'country_iso': 'n/a', 
-                        'continent': 'n/a', 
-                        'continent_code': 'n/a',
-                        'longitude': 'n/a', 
-                        'latitude': 'n/a', 
-                        'timezone': 'n/a' 
+                        'city': 'NaN',
+                        'postal_code': 'NaN', 
+                        'country': 'NaN', 
+                        'country_iso': 'NaN', 
+                        'continent': 'NaN', 
+                        'continent_code': 'NaN',
+                        'longitude': 'NaN', 
+                        'latitude': 'NaN', 
+                        'timezone': 'NaN' 
                         } 
 
 

@@ -8,6 +8,7 @@ import boto3
 client = boto3.client('s3')
 import re
 from typing import Generator
+from flatten_json import flatten
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x) 
 
@@ -119,7 +120,7 @@ def extract_ip_data(reader, user_agent: dict, ip: str) -> dict:
 def ip_lookup_generator(xs: Generator[str, None, None]) -> Generator[str, None, None]:
     try:
         reader = maxminddb.open_database('./mmdb/GeoLite2-City.mmdb')
-    except Exceptiion as e:
+    except Exception as e:
         print(e)
         print('something goes wrong, becauset there is no file it throws an error')
         return xs
@@ -137,10 +138,16 @@ def convert_tuple_to_dict_generator(xs: Generator[str, None, None]) -> Generator
             for data, ga_body, user_agent, ip in xs
             )
 
+def flatten_json_function(xs: Generator[dict, None, None]) -> Generator[dict, None, None]:
+    return (
+            flatten(data) 
+            for data in xs
+           )
+
 def write_output(xsgen: Generator[str, None, None]) -> ():
-    with open('output.json', 'w') as f:
+    with open('output.jsonl', 'w') as f:
         for line in xsgen:
-            f.write(str(line))
+            f.write(str(line) + '\n')
 
 def program(event: dict) -> Generator[str, None, None]:
     return pipe([
@@ -152,6 +159,7 @@ def program(event: dict) -> Generator[str, None, None]:
             parse_user_agent_generator,
             ip_lookup_generator,
             convert_tuple_to_dict_generator,
+            flatten_json_function,
             (lambda dct: (json.dumps(line) for line in dct))
            ]) (event)
 

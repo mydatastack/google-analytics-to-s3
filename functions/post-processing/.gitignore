@@ -1,2 +1,4 @@
 local/
 mmdb/
+*.json
+*.jsonl

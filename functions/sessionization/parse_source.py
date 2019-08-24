@@ -59,13 +59,13 @@ if __name__ == '__main__':
     class TestHandler(unittest.TestCase):
 
         def test_run_utm(self):
-            self.assertEqual(main(url_utm), 'success')
+            self.assertEqual(main(url_utm), 'newsletter19063_06')
 
         def test_run_adwords(self):
-            self.assertEqual(main(url_adwords), 'success')
+            self.assertEqual(main(url_adwords), 'google')
 
         def test_run_direct(self):
-            self.assertEqual(main(url_direct), 'success')
+            self.assertEqual(main(url_direct), '(direct)')
 
     unittest.main()
 

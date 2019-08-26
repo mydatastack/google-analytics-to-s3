@@ -413,3 +413,4 @@ with_session_ids.select(
                     'landing_page')\
                     .show(100)
 
+with_session_ids.select('body_cid','is_new_session', 'user_session_id', 'global_session_id').filter(with_session_ids['user_session_id'] == 1).show(50, truncate=False)

@@ -12,7 +12,7 @@ from flatten_json import flatten
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x) 
 
-parse_body_query = lambda data: dict(parse_qsl(data['body']))
+parse_body_query = lambda data: print(data) or dict(parse_qsl(data['body']))
 
 
 def detect(user_agent: str) -> dict:
@@ -53,7 +53,7 @@ def dec(data):
 
 def parse_ga_body_payload_generator(xs: Generator[str, None, None]) -> Generator[str, None, None]:
     return (
-            (entry, parse_body_query(entry), entry['user_agent'], entry['ip'])
+            (entry, entry, entry['user_agent'], entry['ip'])
             for data in xs
             for entry in data
             )
@@ -134,7 +134,7 @@ def ip_lookup_generator(xs: Generator[str, None, None]) -> Generator[str, None, 
         
 def convert_tuple_to_dict_generator(xs: Generator[str, None, None]) -> Generator[str, None, None]:
     return (
-            dict(data, **{'body':ga_body}, **{'ua_detected': user_agent}, **{'geo': ip})
+            dict(data, **{'body':ga_body['body']}, **{'ua_detected': user_agent}, **{'geo': ip})
             for data, ga_body, user_agent, ip in xs
             )
 
@@ -145,13 +145,24 @@ def flatten_json_function(xs: Generator[dict, None, None]) -> Generator[dict, No
            )
 
 def write_output(xsgen: Generator[str, None, None]) -> ():
-    with open('output.jsonl', 'w') as f:
+    with open('output.jsonl', 'a') as f:
         for line in xsgen:
             f.write(str(line) + '\n')
 
+def s3_list_adapter(entry):
+    bucket = entry.bucket_name
+    key = entry.key
+    obj = client.get_object(Bucket=bucket, Key=key)
+    body = obj['Body']
+    yield body.read().decode('utf-8')
+
+def log_generator(xs):
+    for x in xs:
+        print(x)
+
 def program(event: dict) -> Generator[str, None, None]:
     return pipe([
-            s3_event_adapter,
+            s3_list_adapter,
             frh_json,
             split_files,
             json_decode,
@@ -168,6 +179,7 @@ def handler(event: dict, ctx: dict) -> str:
         write_output(program(event))
     except Exception as e:
         print(e)
+        print('the message comes from exception')
         return 'error'
     else:
         return 'success'

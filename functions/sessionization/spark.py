@@ -68,13 +68,15 @@ session_id_query_ = """ select *, sha(concat(a.body_cid, a.first_value, a.last_v
                         row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
 from
           (
-          select *, first_value(received_at_apig) over (partition by body_cid order by is_new_session desc) as first_value,
-          last_value(received_at_apig) over (partition by body_cid) as last_value
+          select *, first_value(received_at_apig) over (partition by body_cid, user_session_id order by is_new_session desc) as first_value,
+          last_value(received_at_apig) over (partition by body_cid, user_session_id) as last_value
           from sessions
           ) a
 """
 
 with_session_ids = spark.sql(session_id_query_)
+
+with_session_ids.select('body_cid', 'session_id', 'user_session_id', 'is_new_session').show(10, truncate=False)
 
 
 import urllib
@@ -140,34 +142,215 @@ def parse_source_source(url):
             partial(identify_channel, channels),
             ]) (url)
  
+def parse_dr_source(body_dl: str, body_dr: str):
+    hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
+    empty_query = len(query_is_empty(parse_url(body_dl))) == 0
+    query = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
+    if hostname == 'googleadservices':
+        return 'google'
+    elif empty_query: 
+        return hostname 
+    elif not empty_query and 'ref' in query:
+        return query['ref']
+    elif not empty_query:
+        return identify_channel(channels, query)
+    else:
+        return '(not set)'
+
 def extract_source_source(is_new_session, body_dl, body_dr):
     if (is_new_session == 1 and body_dr is None):
         return parse_source_source(body_dl) 
     elif (is_new_session == 1 and body_dr is not None):
-        hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
-        if hostname == 'googleadservices':
-            return 'google'
-        else:
-            return hostname
+        return parse_dr_source(body_dl, body_dr)
     else:
-        return None
+        return '(not set)'
+
 ## end parsing the source
+
+## start parsing the campaign
+
+def identify_campaign(qr: dict):
+    return qr['utm_campaign'] if 'utm_campaign' in qr else '(not set)'
+
+def parse_source_campaign(url):
+    return pipe([
+            parse_url,
+            query_is_empty,
+            extract_query_value,
+            split_query,
+            identify_campaign,
+            ]) (url)
+
+def parse_dr_campaign(body_dl: str):
+    empty_query = len(query_is_empty(parse_url(body_dl))) == 0
+    query = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
+    if empty_query: 
+        return '(not set)' 
+    elif not empty_query:
+        return identify_campaign(query)
+    else:
+        return '(not set)'
+
+def extract_source_campaign(is_new_session, body_dl, body_dr):
+    if (is_new_session == 1 and body_dr is None):
+        return parse_source_campaign(body_dl) 
+    if (is_new_session == 1 and body_dr is not None):
+        return parse_dr_campaign(body_dl)
+    else:
+        return '(not set)' 
+## end parsing the campaign
 
 ## start parsing the medium
 
+def identify_medium(qr: dict):
+    if 'utm_medium' in qr:
+        return qr['utm_medium']
+    if 'gclid' in qr:
+        return 'paid'
+    else:
+        return '(none)'
+
+def parse_source_medium(url: str):
+    return pipe([
+            parse_url,
+            query_is_empty,
+            extract_query_value,
+            split_query,
+            identify_medium,
+            ]) (url)
+
+search_engines = [
+        'google', 
+        'yahoo', 
+        'bing', 
+        'aol', 
+        'ask', 
+        'comcast', 
+        'nexttag', 
+        'local', 
+        ]
+
+paid_channels = [
+        'gclid', 
+        'gclsrc', 
+        'dclid', 
+        'fbclid', 
+        'mscklid', 
+        ]
+
+def match(xs):
+    return [s for s in xs if any(xz in s for xz in paid_channel)]
+
+def parse_dr_medium(body_dr: str, body_dl: str):
+    hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
+    empty_query = len(query_is_empty(parse_url(body_dl))) == 0
+    query = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
+
+    if hostname == 'googleadservices':
+        return 'paid'
+    elif empty_query and hostname in search_engines:
+        return 'organic'
+    elif (empty_query and hostname not in search_engines) or (not empty_query and 'ref' in query):
+        return 'referral'
+    elif not empty_query and any(key in query for key in paid_channels):
+        return 'paid'
+    elif not empty_query and 'utm_medium' in query:
+        return query['utm_medium']
+    else:
+        return '(none)'
+
+
+def extract_source_medium(is_new_session, body_dl, body_dr):
+    if (is_new_session == 1 and body_dr is None):
+        return parse_source_medium(body_dl) 
+    elif (is_new_session == 1 and body_dr is not None):
+        return parse_dr_medium(body_dr, body_dl)
+    else:
+        return '(none)'
 ## end parsing the medium
 
+## start parsing the keyword
+
+def identify_keyword(qr: dict):
+    if 'utm_term' in qr:
+        return qr['utm_term']
+    else:
+        return '(not set)'
+
+def parse_source_keyword(url: str):
+    return pipe([
+            parse_url,
+            query_is_empty,
+            extract_query_value,
+            split_query,
+            identify_keyword,
+            ]) (url)
+
+def parse_dr_keyword(body_dr: str, body_dl: str):
+    hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
+
+    if hostname in search_engines:
+        return '(not provided)'
+    else:
+        return '(not set)'
+
+def extract_source_keyword(is_new_session, body_dl, body_dr, traffic_source_medium):
+    if traffic_source_medium == 'organic':
+        return '(not provided)'
+    if (is_new_session == 1 and body_dr is None):
+        return parse_source_keyword(body_dl) 
+    else:
+        return '(not set)'
+
+## end parsing the keyword
+
+## start parsing the adContent
+
+def identify_ad_content(qr: dict):
+    if 'utm_content' in qr:
+        return qr['utm_content']
+    else:
+        return '(not set)'
+
+def parse_source_ad_content(url: str):
+    return pipe([
+            parse_url,
+            query_is_empty,
+            extract_query_value,
+            split_query,
+            identify_ad_content,
+            ]) (url)
+
+def extract_source_ad_content(is_new_session, body_dl, body_dr):
+    if (is_new_session == 1 and body_dr is None):
+        return parse_source_ad_content(body_dl) 
+    else:
+        return '(not set)'
+
+## end parsing the adContent
+
+## start parsing is_true_direct
+
+## end parsing is_true_direct
+
 traffic_source_referral_path = f.udf(lambda x: x)
-traffic_source_campaign = f.udf(lambda x: x)
+traffic_source_campaign = f.udf(extract_source_campaign)
 traffic_source_source = f.udf(extract_source_source)
-traffic_source_medium = f.udf(lambda x: x)
-traffic_source_keyword = f.udf(lambda x: x)
-traffic_source_adContent = f.udf(lambda x: x)
-traffic_source_is_true_direct = f.udf(lambda x: x)
+traffic_source_medium = f.udf(extract_source_medium)
+traffic_source_keyword = f.udf(extract_source_keyword)
+traffic_source_ad_content = f.udf(extract_source_ad_content)
+traffic_source_is_true_direct = f.udf(lambda x: 'True' if x == '(direct)' else None)
 
 with_session_ids = with_session_ids.withColumn(
     'traffic_source_source',
     traffic_source_source(
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr']))
+
+with_session_ids = with_session_ids.withColumn(
+    'traffic_source_campaign',
+    traffic_source_campaign(
             with_session_ids['is_new_session'], 
             with_session_ids['body_dl'], 
             with_session_ids['body_dr']))
@@ -179,5 +362,34 @@ with_session_ids = with_session_ids.withColumn(
             with_session_ids['body_dl'], 
             with_session_ids['body_dr']))
 
-with_session_ids.select('traffic_source_source', 'body_dl').filter(with_session_ids['is_new_session'] > 0).show(1000, truncate=False)
+with_session_ids = with_session_ids.withColumn(
+    'traffic_source_keyword',
+    traffic_source_keyword(
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr'],
+            with_session_ids['traffic_source_medium']
+            ))
+
+with_session_ids = with_session_ids.withColumn(
+    'traffic_source_ad_content',
+    traffic_source_ad_content(
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr']))
+
+with_session_ids = with_session_ids.withColumn(
+    'traffic_source_is_true_direct',
+    traffic_source_is_true_direct(
+            with_session_ids['traffic_source_source'])) 
+
+with_session_ids.select(
+                    'traffic_source_source', 
+                    'traffic_source_is_true_direct',
+                    'traffic_source_campaign',
+                    'traffic_source_medium', 
+                    'traffic_source_keyword',
+                    'traffic_source_ad_content',
+                    'body_dl')\
+                .filter(with_session_ids['is_new_session'] > 0).show(100)#, truncate=False)
 

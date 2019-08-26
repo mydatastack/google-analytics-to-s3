@@ -383,6 +383,26 @@ with_session_ids = with_session_ids.withColumn(
     traffic_source_is_true_direct(
             with_session_ids['traffic_source_source'])) 
 
+## start with the extraction of landingpage
+def extract_landing_page(is_new_session, body_dl):
+    if is_new_session == 1:
+        url = parse_url(body_dl)
+        return url.path
+    else:
+        return None
+
+## end with the extraction of landingpage
+
+udf_extract_landing_page = f.udf(extract_landing_page)
+
+with_session_ids = with_session_ids.withColumn(
+        'landing_page',
+        udf_extract_landing_page(
+                with_session_ids['is_new_session'],
+                with_session_ids['body_dl']
+                ))
+
+
 with_session_ids.select(
                     'traffic_source_source', 
                     'traffic_source_is_true_direct',
@@ -390,6 +410,6 @@ with_session_ids.select(
                     'traffic_source_medium', 
                     'traffic_source_keyword',
                     'traffic_source_ad_content',
-                    'body_dl')\
-                .filter(with_session_ids['is_new_session'] > 0).show(100)#, truncate=False)
+                    'landing_page')\
+                    .show(100)
 

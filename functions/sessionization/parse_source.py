@@ -20,8 +20,13 @@ def parse_url(url):
 def query_is_empty(url):
     return url if len(str(url.query)) != 0 else []
 
+def split_item(item):
+    return item.split('=')
+
 def split_query(qr: str):
-    return dict(item.split('=') for item in qr.split('&'))
+    query = qr.split('&')
+    query_clean = [x for x in query if x and x.find('=') > 0]
+    return dict(split_item(item) for item in query_clean)
 
 def identify_channel(channel_list: list, qr: dict):
     channel = [s for s in qr if any(xz in s for xz in channel_list)]
@@ -55,17 +60,20 @@ if __name__ == '__main__':
     url_utm = 'https://dildoking.de/de/empfehlungen/fuer-sie/top-sextoy-fuer-sie.html?utm_source=newsletter19063_06&utm_medium=email&utm_campaign=newsletter19063'
     url_adwords = 'https://dildoking.de/de/marken-bei-dildoking/top-marken-sextoys/docjohnson-sextoys.html?CAWELAID=120077130000007192&CATRK=SPFID-1&CAAGID=22606803860&CATCI=kwd-49622108&CAPCID=231310162686&CADevice=c&gclid=EAIaIQobChMIzIHd5K7z4wIVDUTTCh0_WgI7EAAYASAAEgKXxvD_BwE'
     url_direct = 'https://dildoking.de/de/eromeo-masturbator-ms-honesty-aircraft-skin.html'
+    url_broken = 'https://dildoking.de/de/eromeo-mastrubator-ms-honesty-aircraft-skin.html?dildoking&suche=1&suchbegriff=Liebesmaschinen&searchform=1&'
 
     class TestHandler(unittest.TestCase):
 
-        def test_run_utm(self):
-            self.assertEqual(main(url_utm), 'newsletter19063_06')
+        #def test_run_utm(self):
+            #self.assertEqual(main(url_utm), 'newsletter19063_06')
 
-        def test_run_adwords(self):
-            self.assertEqual(main(url_adwords), 'google')
+        #def test_run_adwords(self):
+            #self.assertEqual(main(url_adwords), 'google')
 
-        def test_run_direct(self):
-            self.assertEqual(main(url_direct), '(direct)')
+        #def test_run_direct(self):
+            #self.assertEqual(main(url_direct), '(direct)')
 
+        def test_run_broken(self):
+            self.assertEqual(main(url_broken), '(direct)')
     unittest.main()
 

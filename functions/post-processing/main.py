@@ -12,7 +12,7 @@ from flatten_json import flatten
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x) 
 
-parse_body_query = lambda data: print(data) or dict(parse_qsl(data['body']))
+parse_body_query = lambda data: dict(parse_qsl(data['body']))
 
 
 def detect(user_agent: str) -> dict:
@@ -53,7 +53,7 @@ def dec(data):
 
 def parse_ga_body_payload_generator(xs: Generator[str, None, None]) -> Generator[str, None, None]:
     return (
-            (entry, entry, entry['user_agent'], entry['ip'])
+            (entry, parse_body_query(entry), entry['user_agent'], entry['ip'])
             for data in xs
             for entry in data
             )
@@ -134,7 +134,7 @@ def ip_lookup_generator(xs: Generator[str, None, None]) -> Generator[str, None, 
         
 def convert_tuple_to_dict_generator(xs: Generator[str, None, None]) -> Generator[str, None, None]:
     return (
-            dict(data, **{'body':ga_body['body']}, **{'ua_detected': user_agent}, **{'geo': ip})
+            dict(data, **{'body':ga_body}, **{'ua_detected': user_agent}, **{'geo': ip})
             for data, ga_body, user_agent, ip in xs
             )
 

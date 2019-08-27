@@ -12,6 +12,7 @@ spark = SparkSession \
     .config("spark.some.config.option", "some-value") \
     .getOrCreate()
 spark.sparkContext.setLogLevel('ERROR')
+spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
 save_location = './'
 
@@ -35,36 +36,35 @@ query = """
                         from clicks
                         ) last
                 ) final
+                where not body_t='adtiming' or not body_t='timing'
 
     """
 
 sessions = spark.sql(query)
+# 569123 count(body_cid) 
 
 
 # filter out adtiming and timing events
 sessions_clean = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
 sessions_clean.createOrReplaceTempView('sessions')
+# 489102 count(body_cid) 
 
-referrer_data = spark.sql('select body_t, body_cid, is_new_session, body_dr, body_dl from ' +
-          'sessions where is_new_session=1')
-
-session_ids = spark.sql('select body_cid, user_session_id, is_new_session, dense_rank() over (partition by body_cid, user_session_id order by is_new_session desc) as dense_rank from sessions where body_cid="192399564.1565269823"')
 
 import sys
 
-session_ids_new = sessions_clean.withColumn("session_id", f.sha2(f.concat_ws('||', sessions_clean['body_cid'], sessions_clean['user_session_id']), 0))
+#session_ids_new = sessions_clean.withColumn("session_id", f.sha2(f.concat_ws('||', sessions_clean['body_cid'], sessions_clean['user_session_id']), 0))
 
-spark.sql('select body_cid, is_new_session, user_session_id, ' +
-          'sha(concat(body_cid, user_session_id)) as session_id ' +
-          'from sessions')
+#spark.sql('select body_cid, is_new_session, user_session_id, ' +
+#          'sha(concat(body_cid, user_session_id)) as session_id ' +
+#          'from sessions')
+#
+#session_id_query = """
+#          select *, first_value(received_at_apig) over (partition by body_cid order by is_new_session desc) as first_value,
+#          last_value(received_at_apig) over (partition by body_cid) as last_value
+#          from sessions
+#"""
 
-session_id_query = """
-          select *, first_value(received_at_apig) over (partition by body_cid order by is_new_session desc) as first_value,
-          last_value(received_at_apig) over (partition by body_cid) as last_value
-          from sessions
-"""
-
-session_id_query_ = """ select *, sha(concat(a.body_cid, a.first_value, a.last_value)) as session_id,
+session_id_query_ = """ select *, sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
                         row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
 from
           (
@@ -75,9 +75,6 @@ from
 """
 
 with_session_ids = spark.sql(session_id_query_)
-
-with_session_ids.select('body_cid', 'session_id', 'user_session_id', 'is_new_session').show(10, truncate=False)
-
 
 import urllib
 
@@ -113,10 +110,15 @@ def parse_url(url: str):
 def query_is_empty(url: str):
     return url if len(str(url.query)) != 0 else []
 
-def split_query(qr: str):
-    return dict(item.split('=') for item in qr.split('&'))
+def split_item(item):
+    return item.split('=')
 
-def identify_channel(channel_list: list, qr: str):
+def split_query(qr: str):
+    query = qr.split('&')
+    query_clean = [x for x in query if x and x.find('=') > 0]
+    return dict(split_item(item) for item in query_clean)
+
+def identify_channel(channel_list: list, qr: str, *hostname: str):
     channel = [s for s in qr if any(xz in s for xz in channel_list)]
     if len(channel) == 0:
         return '(direct)'
@@ -129,11 +131,11 @@ def identify_channel(channel_list: list, qr: str):
     elif channel[0] == 'utm_source':
         return qr[channel[0]]
     elif channel[0] == 'direct':
-        return qr[channel[0]] 
+        return '(direct)' 
     else:
-        return '(not set)' 
+        return hostname[0] or '(not set)' 
 
-def parse_source_source(url):
+def parse_dl_source(url):
     return pipe([
             parse_url,
             query_is_empty,
@@ -141,29 +143,62 @@ def parse_source_source(url):
             split_query,
             partial(identify_channel, channels),
             ]) (url)
+
+def split_hostname(body_dr: str) -> str:
+    hostname = parse_url(body_dr).netloc
+    hostname_splitted = hostname.split('.')
+    try:
+        if 'www' in hostname_splitted:
+            return hostname_splitted[1]
+        elif len(hostname_splitted) == 3:
+            return hostname_splitted[1]
+        elif len(hostname_splitted) == 2:
+            return hostname_splitted[0]
+        else:
+            return hostname
+    except Exception as e:
+        print(e)
+        return hostname
  
 def parse_dr_source(body_dl: str, body_dr: str):
-    hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
-    empty_query = len(query_is_empty(parse_url(body_dl))) == 0
-    query = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
+    if body_dr.find('android-app') == 0:
+        return body_dr.split('//')[1]
+    hostname = split_hostname(body_dr) 
+    empty_query_dl = len(query_is_empty(parse_url(body_dl))) == 0
+    empty_query_dr = len(query_is_empty(parse_url(body_dr))) == 0  
+    query_dl = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
+    query_dr = split_item(extract_query_value(query_is_empty(parse_url(body_dr))))
+    #print('============ start ==================\n')
+    #print(empty_query_dr)
+    #print('hostname:', hostname)
+    #print('empty_query_dl: ', empty_query_dl)
+    #print('empty_query_dr: ', empty_query_dr)
+    #print('query: ', query_dl)
+    #print('body_dl: ', body_dl)
+    #print('body_dr: ', body_dr)
+    #print('=========== end ====================\n')
     if hostname == 'googleadservices':
         return 'google'
-    elif empty_query: 
+    elif empty_query_dl and empty_query_dr: 
         return hostname 
-    elif not empty_query and 'ref' in query:
-        return query['ref']
-    elif not empty_query:
-        return identify_channel(channels, query)
+    elif not empty_query_dl and 'utm_source' in query_dl:
+        return query_dl['utm_source']
+    elif not empty_query_dr:
+        return hostname
+    elif not empty_query_dl and 'ref' in query_dl:
+        return query_dl['ref']
+    elif not empty_query_dl:
+        return identify_channel(channels, query_dl, hostname)
     else:
         return '(not set)'
 
 def extract_source_source(is_new_session, body_dl, body_dr):
     if (is_new_session == 1 and body_dr is None):
-        return parse_source_source(body_dl) 
+        return parse_dl_source(body_dl) 
     elif (is_new_session == 1 and body_dr is not None):
         return parse_dr_source(body_dl, body_dr)
     else:
-        return '(not set)'
+        return None 
 
 ## end parsing the source
 
@@ -403,14 +438,20 @@ with_session_ids = with_session_ids.withColumn(
                 ))
 
 
-with_session_ids.select(
-                    'traffic_source_source', 
-                    'traffic_source_is_true_direct',
-                    'traffic_source_campaign',
-                    'traffic_source_medium', 
-                    'traffic_source_keyword',
-                    'traffic_source_ad_content',
-                    'landing_page')\
-                    .show(100)
+#with_session_ids.select('body_cid','is_new_session', 'user_session_id', 'ts', 'global_session_id', 'visit_id', 'body_t', 'traffic_source_source', 'traffic_source_medium', 'landing_page').filter(with_session_ids['user_session_id'] > 0).filter(with_session_ids['body_cid'] == '1001319705.1560936493').show(150, truncate=False)
+with_session_ids.createOrReplaceTempView('final')
+#spark.sql('select * from final').show(5)
+#spark.sql('select * from final limit 1000').coalesce(1).write.option('header', 'true').csv('export')
 
-with_session_ids.select('body_cid','is_new_session', 'user_session_id', 'global_session_id').filter(with_session_ids['user_session_id'] == 1).show(50, truncate=False)
+
+#number_of_visits = spark.sql('select body_cid from final where is_new_session="1" and ts between "2019-08-09" and "2019-08-10"').count()
+#print('number of visits for 09.08.2019: ', number_of_visits)
+
+spark.sql('select traffic_source_medium, count(body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc ').show()
+
+#number_of_visitors = spark.sql('select traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc')
+
+#number_of_visitors.select('traffic_source_medium', 'visitors').agg({'visitors': 'sum'}).show(50)
+#number_of_visitors.select('*').show(50)
+
+#spark.sql('select traffic_source_source, body_dl, body_dr from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" and traffic_source_source is null').show(500, truncate=False) 

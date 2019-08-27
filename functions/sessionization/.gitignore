@@ -1,2 +1,4 @@
-spark-warehose/
+export/
+*.json
 *.jsonl
+spark-warehouse/

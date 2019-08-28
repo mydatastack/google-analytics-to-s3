@@ -2,3 +2,4 @@ export/
 *.json
 *.jsonl
 spark-warehouse/
+geo/

@@ -1,7 +1,7 @@
 from functools import partial, reduce
 import json
 from urllib.parse import urlparse, parse_qsl 
-from device_detector import SoftwareDetector
+from device_detector import SoftwareDetector, DeviceDetector
 from base64 import b64decode, b64encode
 import maxminddb
 import boto3
@@ -9,28 +9,59 @@ client = boto3.client('s3')
 import re
 from typing import Generator
 from flatten_json import flatten
+import user_agents 
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x) 
 
 parse_body_query = lambda data: dict(parse_qsl(data['body']))
 
+#def detect(user_agent: str) -> dict:
+#    device = SoftwareDetector(user_agent).parse()
+#    is_bot = device.is_bot()
+#    if is_bot:
+#        return {'is_bot': True}
+#    else:
+#        return {
+#                'is_bot': False, 
+#                'client_name': device.client_name(), 
+#                'client_type': device.client_type(),
+#                'client_version': device.client_version(),
+#                'os_name': device.os_name(),
+#                'os_version': device.os_version(),
+#                'device_type': 'smartphone' if device.os_name() == 'iOS' else device.device_type(),
+#                'is_mobile': True if device.device_type() == 'smartphone' or device.os_name() == 'iOS' else False,
+#                } 
+#
 
-def detect(user_agent: str) -> dict:
-    device = SoftwareDetector(user_agent).parse()
-    is_bot = device.is_bot()
-    if is_bot:
+def client_type(ua):
+    if ua.is_mobile:
+        return 'mobile'
+    elif ua.is_tablet:
+        return 'tablet'
+    elif ua.is_pc:
+        return 'desktop'
+    else:
+        return '(not set)'
+
+def detect(ua: str) -> dict:
+    user_agent = user_agents.parse(ua)
+    if user_agent.is_bot:
         return {'is_bot': True}
     else:
         return {
-                'is_bot': False, 
-                'client_name': device.client_name(), 
-                'client_type': device.client_type(),
-                'client_version': device.client_version(),
-                'os_name': device.os_name(),
-                'os_version': device.os_version(),
-                'device_type': device.device_type(),
-                } 
-
+                'is_bot': False,
+                'client_name': user_agent.browser.family,
+                'client_version': user_agent.browser.version_string,
+                'os_name': user_agent.os.family,
+                'os_version': user_agent.os.version_string,
+                'device_type': client_type(user_agent),
+                'is_mobile': user_agent.is_mobile,
+                'device_name': user_agent.device.family,
+                'device_brand': user_agent.device.brand,
+                'device_model': user_agent.device.model,
+                'device_input': '(not set)',
+                'device_info': '(not set)', 
+                }
 
 def s3_event_adapter(event: dict) -> Generator[str, None, None]:
     s3 = event['Records'][0]['s3']
@@ -80,24 +111,36 @@ def extract_ip_data(reader, user_agent: dict, ip: str) -> dict:
             location = reader.get(ip)
         except Exception as e:
             return {
-                    'city': 'NaN',
-                    'postal_code': 'NaN', 
-                    'country': 'NaN', 
-                    'country_iso': 'NaN', 
-                    'continent': 'NaN', 
-                    'continent_code': 'NaN',
-                    'longitude': 'NaN', 
-                    'latitude': 'NaN', 
-                    'timezone': 'NaN' 
+                    'city': '(not set)',
+                    'sub_continent': '(not set)',
+                    'postal_code': '(not set)', 
+                    'region': '(not set)',
+                    'metro': '(not set)',
+                    'city_id': '(not set)',
+                    'country': '(not set)', 
+                    'country_iso': '(not set)', 
+                    'continent': '(not set)', 
+                    'continent_code': '(not set)',
+                    'longitude': '(not set)', 
+                    'latitude': '(not set)', 
+                    'timezone': '(not set)',
+                    'network_domain': '(not set)',
+                    'network_location': '(not set)',
                     } 
         else:
             try: 
                 return {
-                        'city': location['city']['names']['en'],
-                        'postal_code': location['postal']['code'],
-                        'country': location['country']['names']['en'],
-                        'country_iso': location['country']['iso_code'],
                         'continent': location['continent']['names']['en'],
+                        'sub_continent': '(not set)',
+                        'country': location['country']['names']['en'],
+                        'region': location['subdivisions'][0]['names']['en'],
+                        'metro': '(not set)',
+                        'city': location['city']['names']['en'],
+                        'city_id': location['city']['geoname_id'],
+                        'network_domain': '(not set)',
+                        'network_location': '(not set)',
+                        'postal_code': location['postal']['code'],
+                        'country_iso': location['country']['iso_code'],
                         'continent_code': location['continent']['code'],
                         'longitude': location['location']['longitude'],
                         'latitude': location['location']['latitude'],
@@ -105,15 +148,21 @@ def extract_ip_data(reader, user_agent: dict, ip: str) -> dict:
                         } 
             except KeyError as e:
                 return {
-                        'city': 'NaN',
-                        'postal_code': 'NaN', 
-                        'country': 'NaN', 
-                        'country_iso': 'NaN', 
-                        'continent': 'NaN', 
-                        'continent_code': 'NaN',
-                        'longitude': 'NaN', 
-                        'latitude': 'NaN', 
-                        'timezone': 'NaN' 
+                        'city': '(not set)',
+                        'sub_continent': '(not set)',
+                        'postal_code': '(not set)', 
+                        'region': '(not set)',
+                        'metro': '(not set)',
+                        'city_id': '(not set)',
+                        'country': '(not set)', 
+                        'country_iso': '(not set)', 
+                        'continent': '(not set)', 
+                        'continent_code': '(not set)',
+                        'longitude': '(not set)', 
+                        'latitude': '(not set)', 
+                        'timezone': '(not set)',
+                        'network_domain': '(not set)',
+                        'network_location': '(not set)',
                         } 
 
 
@@ -156,19 +205,26 @@ def s3_list_adapter(entry):
     body = obj['Body']
     yield body.read().decode('utf-8')
 
-def log_generator(xs):
+def log_generator(iterations: int, xs: Generator[str, None, None]) -> ():
+    counter = 0
     for x in xs:
-        print(x)
+        if counter == iterations:
+            break
+        else:
+            counter += 1
+            print(x)
 
 def program(event: dict) -> Generator[str, None, None]:
     return pipe([
             s3_list_adapter,
+            #s3_event_adapter,
             frh_json,
             split_files,
             json_decode,
             parse_ga_body_payload_generator,
             parse_user_agent_generator,
             ip_lookup_generator,
+            #partial(log_generator, 10),
             convert_tuple_to_dict_generator,
             flatten_json_function,
             (lambda dct: (json.dumps(line) for line in dct))

@@ -3,6 +3,7 @@ from pyspark.sql.types import DateType
 from pyspark.sql import functions as f
 from pyspark.sql import types as t
 from pyspark.sql import Row
+from columns import columns_to_drop
 import sys
 from pyspark.sql.window import Window
 
@@ -18,6 +19,10 @@ save_location = './'
 
 df = spark.read.json('output.jsonl')
 df.createOrReplaceTempView('clicks')
+
+df_clean = df.drop(*columns_to_drop)
+df_clean.createOrReplaceTempView('clicks')
+
 
 query = """ 
                 select *,
@@ -49,22 +54,12 @@ sessions_clean = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']
 sessions_clean.createOrReplaceTempView('sessions')
 # 489102 count(body_cid) 
 
+sessions_count = spark.sql('select count(body_cid) from sessions where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"')
+#sessions_count.show()
 
 import sys
 
-#session_ids_new = sessions_clean.withColumn("session_id", f.sha2(f.concat_ws('||', sessions_clean['body_cid'], sessions_clean['user_session_id']), 0))
-
-#spark.sql('select body_cid, is_new_session, user_session_id, ' +
-#          'sha(concat(body_cid, user_session_id)) as session_id ' +
-#          'from sessions')
-#
-#session_id_query = """
-#          select *, first_value(received_at_apig) over (partition by body_cid order by is_new_session desc) as first_value,
-#          last_value(received_at_apig) over (partition by body_cid) as last_value
-#          from sessions
-#"""
-
-session_id_query_ = """ select *, sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
+session_id_query = """ select *, sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
                         row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
 from
           (
@@ -74,7 +69,7 @@ from
           ) a
 """
 
-with_session_ids = spark.sql(session_id_query_)
+with_session_ids = spark.sql(session_id_query)
 
 import urllib
 
@@ -118,7 +113,7 @@ def split_query(qr: str):
     query_clean = [x for x in query if x and x.find('=') > 0]
     return dict(split_item(item) for item in query_clean)
 
-def identify_channel(channel_list: list, qr: str, *hostname: str):
+def identify_channel(channel_list: list, qr: str):
     channel = [s for s in qr if any(xz in s for xz in channel_list)]
     if len(channel) == 0:
         return '(direct)'
@@ -133,7 +128,7 @@ def identify_channel(channel_list: list, qr: str, *hostname: str):
     elif channel[0] == 'direct':
         return '(direct)' 
     else:
-        return hostname[0] or '(not set)' 
+        return '(not set)' 
 
 def parse_dl_source(url):
     return pipe([
@@ -168,15 +163,6 @@ def parse_dr_source(body_dl: str, body_dr: str):
     empty_query_dr = len(query_is_empty(parse_url(body_dr))) == 0  
     query_dl = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
     query_dr = split_item(extract_query_value(query_is_empty(parse_url(body_dr))))
-    #print('============ start ==================\n')
-    #print(empty_query_dr)
-    #print('hostname:', hostname)
-    #print('empty_query_dl: ', empty_query_dl)
-    #print('empty_query_dr: ', empty_query_dr)
-    #print('query: ', query_dl)
-    #print('body_dl: ', body_dl)
-    #print('body_dr: ', body_dr)
-    #print('=========== end ====================\n')
     if hostname == 'googleadservices':
         return 'google'
     elif empty_query_dl and empty_query_dr: 
@@ -188,7 +174,7 @@ def parse_dr_source(body_dl: str, body_dr: str):
     elif not empty_query_dl and 'ref' in query_dl:
         return query_dl['ref']
     elif not empty_query_dl:
-        return identify_channel(channels, query_dl, hostname)
+        return identify_channel(channels, query_dl)
     else:
         return '(not set)'
 
@@ -442,16 +428,107 @@ with_session_ids = with_session_ids.withColumn(
 with_session_ids.createOrReplaceTempView('final')
 #spark.sql('select * from final').show(5)
 #spark.sql('select * from final limit 1000').coalesce(1).write.option('header', 'true').csv('export')
+#with_session_ids.printSchema()
+#spark.sql('select body_cid, body_pa as product_action, body_tr as revenue, body_pr1ca, body_pr1id, body_pr1nm, body_pr1pr, body_pr1qt from final where body_pa="purchase"').show()
+
+cities = spark.sql('select geo_city, geo_country, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" group by geo_city, geo_country order by visitors desc')
+#cities.show(50)
 
 
-#number_of_visits = spark.sql('select body_cid from final where is_new_session="1" and ts between "2019-08-09" and "2019-08-10"').count()
-#print('number of visits for 09.08.2019: ', number_of_visits)
+visitors_total = spark.sql('select count(body_cid) as total_visits from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"')
+#visitors_total.show()
 
-spark.sql('select traffic_source_medium, count(body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc ').show()
+visitors_by_medium = spark.sql('select traffic_source_medium, count(body_cid) as visits from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visits desc')
+#visitors_by_medium.show(50)
+
+rename_query = """
+    select 
+        body_cid as fullVisitorId, 
+        visit_id as visitId,
+        user_session_id as visitNumber,
+        first_value as visitStartTime,
+        ts as date,
+        body_dr as trafficSource_referralPath,
+        traffic_source_campaign as trafficSource_campaign,
+        traffic_source_source as trafficSource_source,
+        traffic_source_medium as trafficSource_medium,
+        traffic_source_keyword as trafficSource_keyword,
+        traffic_source_ad_content as trafficSource_ad_content,
+        -- trafficSource_adwordsCkickInfo_campaignId
+        -- trafficSource_adwordsClickInfo_adGroupId
+        -- trafficSource_adwordsClickInfo_creativeId
+        -- trafficSource_adwordsClickInfo_criteriaId
+        -- trafficSource_adwordsClickInfo_page
+        -- trafficSource_adwordsClickInfo_slot
+        -- trafficSource_adwordsClickInfo_criteriaParameters
+        -- trafficSource_adwordsClickInfo_gclid
+        -- trafficSource_adwordsClickInfo_customerId
+        -- trafficSource_adwordsClickInfo_adNetworkType
+        -- trafficSource_adwordsClickInfo_targetingCriteria_boomUserlistId
+        -- trafficSource_adwordsClickInfo_isVideoAd
+        geo_continent as geoNetwork_continent,
+        geo_sub_continent as geoNetwork_subContinent,
+        geo_country as geoNetwork_country,
+        geo_region as geoNetwork_region,
+        geo_metro as geoNetwork_metro,
+        geo_city as geoNetwork_city,
+        geo_city_id as geoNetwork_cityId,
+        geo_network_domain as geoNetwork_networkDomain,
+        geo_latitude as geoNetwork_latitude,
+        geo_longitude as geoNetwork_longitude,
+        geo_network_location as geoNetwork_networkLocation,
+        ua_detected_client_name as device_browser,
+        ua_detected_client_version as device_browserVersion,
+        body_vp as device_browserSize,
+        ua_detected_os_name as device_operatingSystem,
+        ua_detected_os_version as device_operatingSystemVersion,
+        ua_detected_is_mobile as device_isMobile,
+        ua_detected_device_brand as device_mobileDeviceBranding,
+        ua_detected_device_model as device_mobileDeviceModel,
+        ua_detected_device_input as device_mobileInputSelector,
+        ua_detected_device_info as device_mobileDeviceInfo,
+        ua_detected_device_name as device_mobileDeviceMarketingName,
+        body_fl as device_flashVersion,
+        body_je as device_javaEnabled,
+        body_ul as device_language,
+        body_sd as device_screenColors,
+        body_sr as device_screenResolution,
+        ua_detected_device_type as device_deviceCategory,
+        landing_page as landingPage
+        from final
+"""
+
+renaming = spark.sql(rename_query)
+renaming.createOrReplaceTempView('export')
+
+save = spark.sql('select * from export limit 1000')
+#export = save.coalesce(1).write.option('header', 'true').csv('export')
+
+# calculates total revenue for the date
+# 22.664.41
+#spark.sql('select round(sum(body_tr)) as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event"').show()
+#spark.sql('select visit_id, traffic_source_source, traffic_source_medium, sum(body_tr) as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event" group by visit_id, traffic_source_source, traffic_source_medium').show()
+
+#visit_id_revenue = spark.sql('select visit_id, body_tr as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event"')
+#visit_id_source = spark.sql('select *, traffic_source_source, traffic_source_medium, visit_id from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"')
+#join_revenue_source = visit_id_revenue.join(visit_id_source, visit_id_revenue['visit_id'] == visit_id_source['visit_id'])
+#join_revenue_source.createOrReplaceTempView('revenue_table')
+
+#spark.sql('select sum(revenue) as total_revenue from revenue_table').show()
+#spark.sql('select traffic_source_medium, round(sum(revenue)) as total_revenue from revenue_table group by traffic_source_medium order by total_revenue desc').show()
+
+#spark.sql('select count(distinct body_cid) from final where ts between "2019-08-09" and "2019-08-10"').show()
+#spark.sql('select traffic_source_source, traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_source, traffic_source_medium order by visitors desc').show()
+#number_of_visitors = spark.sql('select distinct body_cid from final where is_new_session="1" and ts between "2019-08-09" and "2019-08-10"').count()
+#print('number of visitors for 09.08.2019: ', number_of_visitors)
+
+#spark.sql('select count(distinct body_cid) as nutzer from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"').show()
+#spark.sql('select count(distinct body_cid) as bots from final where ts between "2019-08-09" and "2019-08-10" and ua_detected_is_bot="false"').show()
+
+#spark.sql('select traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc ').show()
 
 #number_of_visitors = spark.sql('select traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc')
-
 #number_of_visitors.select('traffic_source_medium', 'visitors').agg({'visitors': 'sum'}).show(50)
 #number_of_visitors.select('*').show(50)
-
-#spark.sql('select traffic_source_source, body_dl, body_dr from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" and traffic_source_source is null').show(500, truncate=False) 
+#spark.sql('select geo_city, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" group by geo_city order by visitors desc').show(500, truncate=False) 
+#spark.sql('select geo_city, ip, ua_detected_device_type from final where ts between "2019-08-09" and "2019-08-10" and geo_city="NaN"').show(100)

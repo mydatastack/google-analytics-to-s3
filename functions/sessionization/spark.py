@@ -1,28 +1,37 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DateType
-from pyspark.sql import functions as f
+from pyspark.sql import functions as f 
 from pyspark.sql import types as t
 from pyspark.sql import Row
-from columns import columns_to_drop
+from columns import columns_to_drop, required_columns
 import sys
 from pyspark.sql.window import Window
+from page_path import main as parse_page_path
 
-spark = SparkSession \
-    .builder \
-    .appName("Python Spark SQL basic example") \
-    .config("spark.some.config.option", "some-value") \
+spark = SparkSession\
+    .builder\
+    .appName("Python Spark SQL basic example")\
+    .config("spark.some.config.option", "some-value")\
     .getOrCreate()
 spark.sparkContext.setLogLevel('ERROR')
 spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
 save_location = './'
 
-df = spark.read.json('output.jsonl')
-df.createOrReplaceTempView('clicks')
+df = spark.read.json('./output.jsonl')
+
+if not 'body_el' in df.columns:
+    df = df.withColumn('body_el', f.lit(''))
+
+if not 'body_ev' in df.columns:
+    df = df.withColumn('body_ev', f.lit(''))
 
 df_clean = df.drop(*columns_to_drop)
-df_clean.createOrReplaceTempView('clicks')
+df.createOrReplaceTempView('clicks')
 
+required_columns_query = 'select *, null as body_el, null as body_ev from clicks'
+
+with_columns = spark.sql(required_columns_query)
 
 query = """ 
                 select *,
@@ -404,6 +413,14 @@ with_session_ids = with_session_ids.withColumn(
     traffic_source_is_true_direct(
             with_session_ids['traffic_source_source'])) 
 
+udf_page_path = f.udf(parse_page_path, t.ArrayType(t.StringType()))
+
+with_session_ids = with_session_ids\
+                         .withColumn('page_path_level_one', udf_page_path(with_session_ids['body_dl'])[0])\
+                         .withColumn('page_path_level_two', udf_page_path(with_session_ids['body_dl'])[1])\
+                         .withColumn('page_path_level_three', udf_page_path(with_session_ids['body_dl'])[2])\
+                         .withColumn('page_path_level_four', udf_page_path(with_session_ids['body_dl'])[3])\
+
 ## start with the extraction of landingpage
 def extract_landing_page(is_new_session, body_dl):
     if is_new_session == 1:
@@ -423,13 +440,19 @@ with_session_ids = with_session_ids.withColumn(
                 with_session_ids['body_dl']
                 ))
 
+udf_extract_page_path = f.udf(lambda url: parse_url(url).path)
 
-#with_session_ids.select('body_cid','is_new_session', 'user_session_id', 'ts', 'global_session_id', 'visit_id', 'body_t', 'traffic_source_source', 'traffic_source_medium', 'landing_page').filter(with_session_ids['user_session_id'] > 0).filter(with_session_ids['body_cid'] == '1001319705.1560936493').show(150, truncate=False)
+with_session_ids = with_session_ids.withColumn(
+        'page_path',
+        udf_extract_page_path(with_session_ids['body_dl'])) 
+
+udf_extract_hostname = f.udf(lambda url: parse_url(url).netloc)
+
+with_session_ids = with_session_ids.withColumn(
+        'hostname',
+        udf_extract_hostname(with_session_ids['body_dl']))
+
 with_session_ids.createOrReplaceTempView('final')
-#spark.sql('select * from final').show(5)
-#spark.sql('select * from final limit 1000').coalesce(1).write.option('header', 'true').csv('export')
-#with_session_ids.printSchema()
-#spark.sql('select body_cid, body_pa as product_action, body_tr as revenue, body_pr1ca, body_pr1id, body_pr1nm, body_pr1pr, body_pr1qt from final where body_pa="purchase"').show()
 
 cities = spark.sql('select geo_city, geo_country, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" group by geo_city, geo_country order by visitors desc')
 #cities.show(50)
@@ -447,7 +470,7 @@ rename_query = """
         visit_id as visitId,
         user_session_id as visitNumber,
         first_value as visitStartTime,
-        ts as date,
+        date_format(ts, "yMMdd") as date,
         body_dr as trafficSource_referralPath,
         traffic_source_campaign as trafficSource_campaign,
         traffic_source_source as trafficSource_source,
@@ -494,15 +517,58 @@ rename_query = """
         body_sd as device_screenColors,
         body_sr as device_screenResolution,
         ua_detected_device_type as device_deviceCategory,
-        landing_page as landingPage
+        landing_page as landingPage,
+        body_ec as hits_eventInfo_eventCategory,
+        body_ea as hits_eventInfo_eventAction,
+        body_el as hits_eventInfo_eventLabel,
+        body_ev as hits_eventInfo_eventValue,
+        event_sequence as hits_hitNumber,
+        ts as hits_time, -- needs to be calculated from the session start
+        hour(ts) as hits_hour,
+        minute(ts) as hits_minute,
+        '' as hits_isSecure, -- depricated can be removed
+        body_ni as hits_isInteractive,
+        '' as hits_referer,
+        page_path as hits_page_pagePath,
+        hostname as hits_page_hostname,
+        body_dt as hits_page_pageTitle,
+        '' as hits_page_searchKeyword,
+        '' as hits_page_searchCategory,
+        page_path_level_one as hits_page_pagePathLevel1,
+        page_path_level_two as hits_page_pagePathLevel2,
+        page_path_level_three as hits_page_pagePathLevel3,
+        page_path_level_four as hits_page_pagePathLevel4,
+        body_ti as hits_item_transactionId,
+        -- hits_item_productName,
+        -- hits_item_productCategory,
+        -- hits_item_productSku,
+        -- hits_item_itemQuantity,
+        -- hits_item_itemRevenue,
+        body_cu as hits_item_currencyCode,
+        '' as hits_item_localItemRevenue,
+        -- hits_product_productPrice,
+        -- hits_product_productQuantity,
+        -- hits_product_productRefundAmount,
+        -- hits_product_productRevenue,
+        -- hits_product_productSKU,
+        -- hits_product_productVariant,
+        body_col as hits_eCommerceAction_option,
+        body_cos as hits_eCommerceAction_step,
+        body_pa as hits_eCommerceAction_action_type,
+        body_tcc as hits_transation_transactionCoupon,
+        body_ti as hits_transaction_transactionId,
+        body_tr as hits_transaction_transactionRevenue,
+        body_ts as hits_transaction_transactionShipping,
+        body_tt as hits_transaction_transactionTax,
+        body_t as hits_type
         from final
 """
 
 renaming = spark.sql(rename_query)
 renaming.createOrReplaceTempView('export')
-
-save = spark.sql('select * from export limit 1000')
-#export = save.coalesce(1).write.option('header', 'true').csv('export')
+#show = spark.sql('select * from export').show(5, truncate=True)
+save = spark.sql('select * from final')
+export = save.coalesce(1).write.option('header', 'true').csv('export')
 
 # calculates total revenue for the date
 # 22.664.41

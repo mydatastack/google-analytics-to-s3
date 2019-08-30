@@ -1,3 +1,7 @@
+required_columns = [
+        'body_el',
+        'body_ev'
+        ]
 columns_to_drop = [
         'body__cbt',
         'body__cst',
@@ -17,10 +21,11 @@ columns_to_drop = [
         'body_gjid',
         'body_gtm',
         'body_jid', # needed for linking data between doubleclick and ga
-        'body_ni', # specifies that a hit be considered non-interactive
         'body_pdt', # page download times
         'body_plt', # page load times
-'body_pr10ca', 'body_pr10cc', 'body_pr10id', 'body_pr10nm', 'body_pr10pr', 'body_pr10qt', 'body_pr10va', 'body_pr11ca', 'body_pr11cc', 'body_pr11id', 'body_pr11nm', 'body_pr11pr', 'body_pr11qt', 'body_pr11va', 'body_pr12ca', 'body_pr12cc', 'body_pr12id', 'body_pr12nm', 'body_pr12pr', 'body_pr12qt', 'body_pr12va', 'body_pr13ca', 'body_pr13cc', 'body_pr13id', 'body_pr13nm', 'body_pr13pr', 'body_pr13qt', 'body_pr13va', 'body_pr14ca', 'body_pr14id', 'body_pr14nm', 'body_pr14pr', 'body_pr14qt', 'body_pr14va', 'body_pr15ca', 'body_pr15id', 'body_pr15nm', 'body_pr15pr', 'body_pr15qt', 'body_pr15va', 'body_pr16ca', 'body_pr16id', 'body_pr16nm', 'body_pr16pr', 'body_pr16qt', 'body_pr16va', 'body_pr17ca', 'body_pr17id', 'body_pr17nm', 'body_pr17pr', 'body_pr17qt', 'body_pr17va', 'body_pr18ca', 'body_pr18id', 'body_pr18nm', 'body_pr18pr', 'body_pr18qt', 'body_pr18va', 'body_pr19ca', 'body_pr19id', 'body_pr19nm', 'body_pr19pr', 'body_pr19qt', 'body_pr19va', 'body_pr1ca', 'body_pr1cc', 'body_pr1id', 'body_pr1nm', 'body_pr1pr', 'body_pr1qt', 'body_pr1va', 'body_pr20ca', 'body_pr20id', 'body_pr20nm', 'body_pr20pr', 'body_pr20qt', 'body_pr20va', 'body_pr2ca', 'body_pr2cc', 'body_pr2id', 'body_pr2nm', 'body_pr2pr', 'body_pr2qt', 'body_pr2va', 'body_pr3ca', 'body_pr3cc', 'body_pr3id', 'body_pr3nm', 'body_pr3pr', 'body_pr3qt', 'body_pr3va', 'body_pr4ca', 'body_pr4cc', 'body_pr4id', 'body_pr4nm', 'body_pr4pr', 'body_pr4qt', 'body_pr4va', 'body_pr5ca', 'body_pr5cc', 'body_pr5id', 'body_pr5nm', 'body_pr5pr', 'body_pr5qt', 'body_pr5va', 'body_pr6ca', 'body_pr6cc', 'body_pr6id', 'body_pr6nm', 'body_pr6pr', 'body_pr6qt', 'body_pr6va', 'body_pr7ca', 'body_pr7cc', 'body_pr7id', 'body_pr7nm', 'body_pr7pr', 'body_pr7qt', 'body_pr7va', 'body_pr8ca', 'body_pr8cc', 'body_pr8id', 'body_pr8nm', 'body_pr8pr', 'body_pr8qt', 'body_pr8va', 'body_pr9ca', 'body_pr9cc', 'body_pr9id', 'body_pr9nm', 'body_pr9pr', 'body_pr9qt', 'body_pr9va'
+        'body_rrt', # redirect response time
+        'body_srt', # server response time
+        'body_tcp', # tcp connect time
         ]
 # _ga 2 years to identify a visitor
 # _gi 24 hours user journey

@@ -19,8 +19,8 @@ spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
 save_location = './'
 
-df = spark.read.json('./output.jsonl')
-
+df = spark.read.json('./output.jsonl').cache()
+#df.printSchema()
 ## start unflattening the product data
 
 regex_ca = re.compile('body_pr\d+ca')
@@ -33,44 +33,58 @@ regex_va = re.compile('body_pr\d+va')
 
 col_names = df.columns
 pr_ca_columns = [c for c in col_names if re.match(regex_ca, c)]
-#pr_cc_columns = [c for c in col_names if re.match(regex_cc, c)]
+pr_cc_columns = [c for c in col_names if re.match(regex_cc, c)]
 pr_id_columns = [c for c in col_names if re.match(regex_id, c)]
 pr_nm_columns = [c for c in col_names if re.match(regex_nm, c)]
 pr_pr_columns = [c for c in col_names if re.match(regex_pr, c)]
 pr_qt_columns = [c for c in col_names if re.match(regex_qt, c)]
 pr_va_columns = [c for c in col_names if re.match(regex_va, c)]
-ln = len(pr_ca_columns) + 1
-pr_cc_columns = [f'body_pr{i}cc' for i in range(1, ln)]
+
+ca = df.rdd.flatMap(lambda x: [Row(prca=x[c], ms_id=x.message_id) for c in pr_ca_columns]).filter(lambda x: x.prca != None and x.ms_id != None)
+cc = df.rdd.flatMap(lambda x: [Row(prcc=x[c], ms_id=x.message_id) for c in pr_cc_columns]).filter(lambda x: x.prcc != None and x.ms_id != None)
+#cc = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_cc_columns]).filter(lambda x: x != None)
+#id_ = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_id_columns]).filter(lambda x: x != None)
+#nm = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_nm_columns]).filter(lambda x: x != None)
+#pr = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_pr_columns]).filter(lambda x: x != None)
+#qt = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_qt_columns]).filter(lambda x: x != None)
+#va = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_va_columns]).filter(lambda x: x != None)
+
+caDF = ca.toDF()
+ccDF = cc.toDF()
+
+jnDF = df.join(caDF, df['message_id'] == caDF['ms_id'], how='left') 
+jnDF.show(5)
+#pr_cc_columns = [f'body_pr{i}cc' for i in range(1, ln)]
 
 
-nested = df\
-            .withColumn('prca', f.array(*pr_ca_columns))\
-            .withColumn('prcc', f.array(*pr_cc_columns))\
-            .withColumn('prid', f.array(*pr_id_columns))\
-            .withColumn('prnm', f.array(*pr_nm_columns))\
-            .withColumn('prpr', f.array(*pr_pr_columns))\
-            .withColumn('prqt', f.array(*pr_qt_columns))\
-            .withColumn('prva', f.array(*pr_va_columns))\
-
-
-exploded = nested.withColumn('tmp', 
-                        f.arrays_zip('prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva'))\
-                 .withColumn('tmp', f.explode('tmp'))
-named = exploded\
-        .withColumn('prca', exploded['tmp.prca'])\
-        .withColumn('prcc', exploded['tmp.prcc'])\
-        .withColumn('prid', exploded['tmp.prid'])\
-        .withColumn('prnm', exploded['tmp.prnm'])\
-        .withColumn('prpr', exploded['tmp.prpr'])\
-        .withColumn('prqt', exploded['tmp.prqt'])\
-        .withColumn('prva', exploded['tmp.prva'])\
-
+#nested = df\
+#            .withColumn('prca', f.array(*pr_ca_columns))\
+#            .withColumn('prcc', f.array(*pr_cc_columns))\
+#            .withColumn('prid', f.array(*pr_id_columns))\
+#            .withColumn('prnm', f.array(*pr_nm_columns))\
+#            .withColumn('prpr', f.array(*pr_pr_columns))\
+#            .withColumn('prqt', f.array(*pr_qt_columns))\
+#            .withColumn('prva', f.array(*pr_va_columns))\
+#
+#
+#exploded = nested.withColumn('tmp', 
+#                        f.arrays_zip('prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva'))\
+#                 .withColumn('tmp', f.explode('tmp'))
+#named = exploded\
+#        .withColumn('prca', exploded['tmp.prca'])\
+#        .withColumn('prcc', exploded['tmp.prcc'])\
+#        .withColumn('prid', exploded['tmp.prid'])\
+#        .withColumn('prnm', exploded['tmp.prnm'])\
+#        .withColumn('prpr', exploded['tmp.prpr'])\
+#        .withColumn('prqt', exploded['tmp.prqt'])\
+#        .withColumn('prva', exploded['tmp.prva'])\
+#
 #named.printSchema()
 
 
-named.select('tmp', 'prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva', 'message_id')\
-        .filter(named['body_pa'] == 'purchase')\
-        .filter(named['body_t'] == 'event')\
+#named.select('tmp', 'prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva', 'message_id')\
+#        .filter(named['body_pa'] == 'purchase')\
+#        .filter(named['body_t'] == 'event')\
 #        .show(50, truncate=False)
 ## end unflattening the product data
 

@@ -2,3 +2,5 @@ export/
 *.json
 *.jsonl
 spark-warehouse/
+*export
+export*

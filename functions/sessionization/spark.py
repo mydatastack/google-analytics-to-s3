@@ -7,6 +7,7 @@ from columns import columns_to_drop, required_columns
 import sys
 from pyspark.sql.window import Window
 from page_path import main as parse_page_path
+import re
 
 spark = SparkSession\
     .builder\
@@ -20,6 +21,59 @@ save_location = './'
 
 df = spark.read.json('./output.jsonl')
 
+## start unflattening the product data
+
+regex_ca = re.compile('body_pr\d+ca')
+regex_cc = re.compile('body_pr\d+cc')
+regex_id = re.compile('body_pr\d+id')
+regex_nm = re.compile('body_pr\d+nm')
+regex_pr = re.compile('body_pr\d+pr')
+regex_qt = re.compile('body_pr\d+qt')
+regex_va = re.compile('body_pr\d+va')
+
+col_names = df.columns
+pr_ca_columns = [c for c in col_names if re.match(regex_ca, c)]
+#pr_cc_columns = [c for c in col_names if re.match(regex_cc, c)]
+pr_id_columns = [c for c in col_names if re.match(regex_id, c)]
+pr_nm_columns = [c for c in col_names if re.match(regex_nm, c)]
+pr_pr_columns = [c for c in col_names if re.match(regex_pr, c)]
+pr_qt_columns = [c for c in col_names if re.match(regex_qt, c)]
+pr_va_columns = [c for c in col_names if re.match(regex_va, c)]
+ln = len(pr_ca_columns) + 1
+pr_cc_columns = [f'body_pr{i}cc' for i in range(1, ln)]
+
+
+nested = df\
+            .withColumn('prca', f.array(*pr_ca_columns))\
+            .withColumn('prcc', f.array(*pr_cc_columns))\
+            .withColumn('prid', f.array(*pr_id_columns))\
+            .withColumn('prnm', f.array(*pr_nm_columns))\
+            .withColumn('prpr', f.array(*pr_pr_columns))\
+            .withColumn('prqt', f.array(*pr_qt_columns))\
+            .withColumn('prva', f.array(*pr_va_columns))\
+
+
+exploded = nested.withColumn('tmp', 
+                        f.arrays_zip('prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva'))\
+                 .withColumn('tmp', f.explode('tmp'))
+named = exploded\
+        .withColumn('prca', exploded['tmp.prca'])\
+        .withColumn('prcc', exploded['tmp.prcc'])\
+        .withColumn('prid', exploded['tmp.prid'])\
+        .withColumn('prnm', exploded['tmp.prnm'])\
+        .withColumn('prpr', exploded['tmp.prpr'])\
+        .withColumn('prqt', exploded['tmp.prqt'])\
+        .withColumn('prva', exploded['tmp.prva'])\
+
+#named.printSchema()
+
+
+named.select('tmp', 'prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva', 'message_id')\
+        .filter(named['body_pa'] == 'purchase')\
+        .filter(named['body_t'] == 'event')\
+#        .show(50, truncate=False)
+## end unflattening the product data
+
 if not 'body_el' in df.columns:
     df = df.withColumn('body_el', f.lit(''))
 
@@ -27,7 +81,9 @@ if not 'body_ev' in df.columns:
     df = df.withColumn('body_ev', f.lit(''))
 
 df_clean = df.drop(*columns_to_drop)
-df.createOrReplaceTempView('clicks')
+
+
+df_clean.createOrReplaceTempView('clicks')
 
 required_columns_query = 'select *, null as body_el, null as body_ev from clicks'
 
@@ -560,15 +616,158 @@ rename_query = """
         body_tr as hits_transaction_transactionRevenue,
         body_ts as hits_transaction_transactionShipping,
         body_tt as hits_transaction_transactionTax,
-        body_t as hits_type
+        body_t as hits_type,
+        body_pr10ca,
+        body_pr10cc,
+        body_pr10id,
+        body_pr10nm,
+        body_pr10pr,
+        body_pr10qt,
+        body_pr10va,
+        body_pr11ca,
+        body_pr11cc,
+        body_pr11id,
+        body_pr11nm,
+        body_pr11pr,
+        body_pr11qt,
+        body_pr11va,
+        body_pr12ca,
+        body_pr12cc,
+        body_pr12id,
+        body_pr12nm,
+        body_pr12pr,
+        body_pr12qt,
+        body_pr12va,
+        body_pr13ca,
+        body_pr13cc,
+        body_pr13id,
+        body_pr13nm,
+        body_pr13pr,
+        body_pr13qt,
+        body_pr13va,
+        body_pr14ca,
+        body_pr14id,
+        body_pr14nm,
+        body_pr14pr,
+        body_pr14qt,
+        body_pr14va,
+        body_pr15ca,
+        body_pr15id,
+        body_pr15nm,
+        body_pr15pr,
+        body_pr15qt,
+        body_pr15va,
+        body_pr16ca,
+        body_pr16id,
+        body_pr16nm,
+        body_pr16pr,
+        body_pr16qt,
+        body_pr16va,
+        body_pr17ca,
+        body_pr17id,
+        body_pr17nm,
+        body_pr17pr,
+        body_pr17qt,
+        body_pr17va,
+        body_pr18ca,
+        body_pr18id,
+        body_pr18nm,
+        body_pr18pr,
+        body_pr18qt,
+        body_pr18va,
+        body_pr19ca,
+        body_pr19id,
+        body_pr19nm,
+        body_pr19pr,
+        body_pr19qt,
+        body_pr19va,
+        body_pr1ca,
+        body_pr1cc,
+        body_pr1id,
+        body_pr1nm,
+        body_pr1pr,
+        body_pr1qt,
+        body_pr1va,
+        body_pr20ca,
+        body_pr20id,
+        body_pr20nm,
+        body_pr20pr,
+        body_pr20qt,
+        body_pr20va,
+        body_pr2ca,
+        body_pr2cc,
+        body_pr2id,
+        body_pr2nm,
+        body_pr2pr,
+        body_pr2qt,
+        body_pr2va,
+        body_pr3ca,
+        body_pr3cc,
+        body_pr3id,
+        body_pr3nm,
+        body_pr3pr,
+        body_pr3qt,
+        body_pr3va,
+        body_pr4ca,
+        body_pr4cc,
+        body_pr4id,
+        body_pr4nm,
+        body_pr4pr,
+        body_pr4qt,
+        body_pr4va,
+        body_pr5ca,
+        body_pr5cc,
+        body_pr5id,
+        body_pr5nm,
+        body_pr5pr,
+        body_pr5qt,
+        body_pr5va,
+        body_pr6ca,
+        body_pr6cc,
+        body_pr6id,
+        body_pr6nm,
+        body_pr6pr,
+        body_pr6qt,
+        body_pr6va,
+        body_pr7ca,
+        body_pr7cc,
+        body_pr7id,
+        body_pr7nm,
+        body_pr7pr,
+        body_pr7qt,
+        body_pr7va,
+        body_pr8ca,
+        body_pr8cc,
+        body_pr8id,
+        body_pr8nm,
+        body_pr8pr,
+        body_pr8qt,
+        body_pr8va,
+        body_pr9ca,
+        body_pr9cc,
+        body_pr9id,
+        body_pr9nm,
+        body_pr9pr,
+        body_pr9qt,
+        body_pr9va
         from final
 """
 
 renaming = spark.sql(rename_query)
 renaming.createOrReplaceTempView('export')
-#show = spark.sql('select * from export').show(5, truncate=True)
-save = spark.sql('select * from final')
-export = save.coalesce(1).write.option('header', 'true').csv('export')
+                        #.show(1, truncate=False)
+#                       .withColumn('tmp', f.explode('tmp')\
+#                       .select('tmp.prca',
+#                               'tmp.prcc',
+#                               'tmp.prid',
+#                               'tmp.prnm',
+#                               'tmp.prpr',
+#                               'tmp.prqt',
+#                               'tmp.prva', 'visitId')\
+#                               .show(50, truncate=False)
+#exploded.printSchema()
+#save = spark.sql('select * from export limit 10000')
+#export = save.coalesce(1).write.option('header', 'true').csv('export')
 
 # calculates total revenue for the date
 # 22.664.41

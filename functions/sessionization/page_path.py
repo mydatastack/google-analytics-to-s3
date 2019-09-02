@@ -26,10 +26,10 @@ def construct_levels(p: list):
         return [str('/' + path[0]), str('/' + path[1]), '', ''] 
     if len(path) == 3:
         return [str('/' + path[0]), str('/' + path[1]), str('/' + path[2]), '']
-    if len(path) == 4:
+    if len(path) >= 4:
         return [str('/' + path[0]), str('/' + path[1]), str('/' + path[2]), str('/' + path[3])]
     else:
-        return ('', '', '', '')
+        return ['', '', '', '']
     
 def main(url):
     return pipe([
@@ -39,7 +39,6 @@ def main(url):
             split_path,
             construct_levels,
             ]) (url)
-
 
 if __name__ == '__main__':
     import unittest
@@ -51,31 +50,35 @@ if __name__ == '__main__':
     url_hostname_slash = 'https://dildoking.de/'
     url_android = 'android-app://com.google.android.gm'
     url_hostname = 'https://dildoking.de'
+    url_not_parsed = '/de/sexspielzeug/analtoys/plugs/xxl-plugs.html'
 
     class TestHandler(unittest.TestCase):
 
         def test_page_path_level_one(self):
-            self.assertEqual(main(url_level_one), ('/de', '', '', ''))
+            self.assertEqual(main(url_level_one), ['/de', '', '', ''])
 
         def test_page_path_level_two(self):
             self.assertEqual(main(url_level_two), 
-                    ('/de', '/7-heaven-leggings-valera-wetlook-black.html', '', ''))
+                    ['/de', '/7-heaven-leggings-valera-wetlook-black.html', '', ''])
 
         def test_page_path_level_three(self):
             self.assertEqual(main(url_level_three), 
-                    ('/de', '/gays-for-life', '/hello-world.html', ''))
+                    ['/de', '/gays-for-life', '/hello-world.html', ''])
 
         def test_page_path_level_four(self):
             self.assertEqual(main(url_level_four), 
-                    ('/de', '/gays-for-life', '/dildoking', '/penis-black.html'))
+                    ['/de', '/gays-for-life', '/dildoking', '/penis-black.html'])
 
         def test_page_path_hostname_slash(self):
-            self.assertEqual(main(url_hostname_slash), ('', '', '', ''))
+            self.assertEqual(main(url_hostname_slash), ['', '', '', ''])
 
         def test_page_path_hostname(self):
-            self.assertEqual(main(url_hostname), ('', '', '', ''))
+            self.assertEqual(main(url_hostname), ['', '', '', ''])
 
         def test_page_path_android(self):
-            self.assertEqual(main(url_android), ('', '', '', ''))
+            self.assertEqual(main(url_android), ['', '', '', ''])
+
+        def test_page_path_not_parsed(self):
+            self.assertEqual(main(url_not_parsed), ['/de', '/sexspielzeug', '/analtoys', '/plugs'])
 
     unittest.main()

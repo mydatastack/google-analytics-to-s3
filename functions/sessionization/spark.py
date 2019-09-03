@@ -1,6 +1,6 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.types import DateType
-from pyspark.sql import functions as f 
+from pyspark.sql.types import DateType, StringType, StructType, StructField
+from pyspark.sql import functions as f
 from pyspark.sql import types as t
 from pyspark.sql import Row
 from columns import columns_to_drop, required_columns
@@ -8,85 +8,20 @@ import sys
 from pyspark.sql.window import Window
 from page_path import main as parse_page_path
 import re
+from filter_tmp import main as filter_tmp
 
 spark = SparkSession\
     .builder\
     .appName("Python Spark SQL basic example")\
-    .config("spark.some.config.option", "some-value")\
+    .config("spark.executor.memory", "6GB")\
     .getOrCreate()
+
 spark.sparkContext.setLogLevel('ERROR')
-spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
+spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')\
 
 save_location = './'
 
-df = spark.read.json('./output.jsonl').cache()
-#df.printSchema()
-## start unflattening the product data
-
-regex_ca = re.compile('body_pr\d+ca')
-regex_cc = re.compile('body_pr\d+cc')
-regex_id = re.compile('body_pr\d+id')
-regex_nm = re.compile('body_pr\d+nm')
-regex_pr = re.compile('body_pr\d+pr')
-regex_qt = re.compile('body_pr\d+qt')
-regex_va = re.compile('body_pr\d+va')
-
-col_names = df.columns
-pr_ca_columns = [c for c in col_names if re.match(regex_ca, c)]
-pr_cc_columns = [c for c in col_names if re.match(regex_cc, c)]
-pr_id_columns = [c for c in col_names if re.match(regex_id, c)]
-pr_nm_columns = [c for c in col_names if re.match(regex_nm, c)]
-pr_pr_columns = [c for c in col_names if re.match(regex_pr, c)]
-pr_qt_columns = [c for c in col_names if re.match(regex_qt, c)]
-pr_va_columns = [c for c in col_names if re.match(regex_va, c)]
-
-ca = df.rdd.flatMap(lambda x: [Row(prca=x[c], ms_id=x.message_id) for c in pr_ca_columns]).filter(lambda x: x.prca != None and x.ms_id != None)
-cc = df.rdd.flatMap(lambda x: [Row(prcc=x[c], ms_id=x.message_id) for c in pr_cc_columns]).filter(lambda x: x.prcc != None and x.ms_id != None)
-#cc = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_cc_columns]).filter(lambda x: x != None)
-#id_ = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_id_columns]).filter(lambda x: x != None)
-#nm = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_nm_columns]).filter(lambda x: x != None)
-#pr = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_pr_columns]).filter(lambda x: x != None)
-#qt = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_qt_columns]).filter(lambda x: x != None)
-#va = df.rdd.flatMap(lambda x: [(x[c], x.message_id) for c in pr_va_columns]).filter(lambda x: x != None)
-
-caDF = ca.toDF()
-ccDF = cc.toDF()
-
-jnDF = df.join(caDF, df['message_id'] == caDF['ms_id'], how='left') 
-jnDF.show(5)
-#pr_cc_columns = [f'body_pr{i}cc' for i in range(1, ln)]
-
-
-#nested = df\
-#            .withColumn('prca', f.array(*pr_ca_columns))\
-#            .withColumn('prcc', f.array(*pr_cc_columns))\
-#            .withColumn('prid', f.array(*pr_id_columns))\
-#            .withColumn('prnm', f.array(*pr_nm_columns))\
-#            .withColumn('prpr', f.array(*pr_pr_columns))\
-#            .withColumn('prqt', f.array(*pr_qt_columns))\
-#            .withColumn('prva', f.array(*pr_va_columns))\
-#
-#
-#exploded = nested.withColumn('tmp', 
-#                        f.arrays_zip('prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva'))\
-#                 .withColumn('tmp', f.explode('tmp'))
-#named = exploded\
-#        .withColumn('prca', exploded['tmp.prca'])\
-#        .withColumn('prcc', exploded['tmp.prcc'])\
-#        .withColumn('prid', exploded['tmp.prid'])\
-#        .withColumn('prnm', exploded['tmp.prnm'])\
-#        .withColumn('prpr', exploded['tmp.prpr'])\
-#        .withColumn('prqt', exploded['tmp.prqt'])\
-#        .withColumn('prva', exploded['tmp.prva'])\
-#
-#named.printSchema()
-
-
-#named.select('tmp', 'prca', 'prcc', 'prid', 'prnm', 'prpr', 'prqt', 'prva', 'message_id')\
-#        .filter(named['body_pa'] == 'purchase')\
-#        .filter(named['body_t'] == 'event')\
-#        .show(50, truncate=False)
-## end unflattening the product data
+df = spark.read.json('./jsonsplit/*.jsonl')
 
 if not 'body_el' in df.columns:
     df = df.withColumn('body_el', f.lit(''))
@@ -94,8 +29,63 @@ if not 'body_el' in df.columns:
 if not 'body_ev' in df.columns:
     df = df.withColumn('body_ev', f.lit(''))
 
-df_clean = df.drop(*columns_to_drop)
+## start unflattening the product data
+col_names  = df.columns
+regex = re.compile('\d+')
+tmp = [y for x in [re.findall(regex, c) for c in col_names] for y in x]
+tmp_index = spark.createDataFrame(list(map(lambda x: Row(index=x), tmp))).distinct().sort(f.col('index')).collect()
+index = [int(i.asDict()['index']) for i in tmp_index]
 
+main = df.select('*')
+
+all_columns_df = df.select('*')
+
+for i in index:
+   col_name = 'body_pr' + str(i) + 'ca'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'cc'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'id'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'nm'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'pr'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'qt'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'va'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))
+
+
+all_columns_df
+
+bodies_schema = StructType([StructField('ms_id', StringType()),StructField('prca', StringType()),StructField('prcc', StringType()),StructField('prid', StringType()),StructField('prnm', StringType()),StructField('prpr', StringType()),StructField('prqt', StringType()),StructField('prva', StringType())])
+
+
+bodies = all_columns_df.rdd \
+   .flatMap(lambda x: [Row(
+           ms_id=x.message_id, prca=x['body_pr'+str(c)+'ca'], 
+           prcc=x['body_pr'+str(c)+'cc'], prid=x['body_pr'+str(c)+'id'], 
+           prnm=x['body_pr'+str(c)+'nm'], prpr=x['body_pr'+str(c)+'pr'], 
+           prqt=x['body_pr'+str(c)+'qt'], prva=x['body_pr'+str(c)+'va']) 
+           for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(bodies_schema)
+
+
+result = main.alias('main') \
+   .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
+
+
+result = result.drop('ms_id')
+## end unflattening the product data
+
+df_clean = result.drop(*columns_to_drop)
 
 df_clean.createOrReplaceTempView('clicks')
 
@@ -616,12 +606,6 @@ rename_query = """
         -- hits_item_itemRevenue,
         body_cu as hits_item_currencyCode,
         '' as hits_item_localItemRevenue,
-        -- hits_product_productPrice,
-        -- hits_product_productQuantity,
-        -- hits_product_productRefundAmount,
-        -- hits_product_productRevenue,
-        -- hits_product_productSKU,
-        -- hits_product_productVariant,
         body_col as hits_eCommerceAction_option,
         body_cos as hits_eCommerceAction_step,
         body_pa as hits_eCommerceAction_action_type,
@@ -631,157 +615,20 @@ rename_query = """
         body_ts as hits_transaction_transactionShipping,
         body_tt as hits_transaction_transactionTax,
         body_t as hits_type,
-        body_pr10ca,
-        body_pr10cc,
-        body_pr10id,
-        body_pr10nm,
-        body_pr10pr,
-        body_pr10qt,
-        body_pr10va,
-        body_pr11ca,
-        body_pr11cc,
-        body_pr11id,
-        body_pr11nm,
-        body_pr11pr,
-        body_pr11qt,
-        body_pr11va,
-        body_pr12ca,
-        body_pr12cc,
-        body_pr12id,
-        body_pr12nm,
-        body_pr12pr,
-        body_pr12qt,
-        body_pr12va,
-        body_pr13ca,
-        body_pr13cc,
-        body_pr13id,
-        body_pr13nm,
-        body_pr13pr,
-        body_pr13qt,
-        body_pr13va,
-        body_pr14ca,
-        body_pr14id,
-        body_pr14nm,
-        body_pr14pr,
-        body_pr14qt,
-        body_pr14va,
-        body_pr15ca,
-        body_pr15id,
-        body_pr15nm,
-        body_pr15pr,
-        body_pr15qt,
-        body_pr15va,
-        body_pr16ca,
-        body_pr16id,
-        body_pr16nm,
-        body_pr16pr,
-        body_pr16qt,
-        body_pr16va,
-        body_pr17ca,
-        body_pr17id,
-        body_pr17nm,
-        body_pr17pr,
-        body_pr17qt,
-        body_pr17va,
-        body_pr18ca,
-        body_pr18id,
-        body_pr18nm,
-        body_pr18pr,
-        body_pr18qt,
-        body_pr18va,
-        body_pr19ca,
-        body_pr19id,
-        body_pr19nm,
-        body_pr19pr,
-        body_pr19qt,
-        body_pr19va,
-        body_pr1ca,
-        body_pr1cc,
-        body_pr1id,
-        body_pr1nm,
-        body_pr1pr,
-        body_pr1qt,
-        body_pr1va,
-        body_pr20ca,
-        body_pr20id,
-        body_pr20nm,
-        body_pr20pr,
-        body_pr20qt,
-        body_pr20va,
-        body_pr2ca,
-        body_pr2cc,
-        body_pr2id,
-        body_pr2nm,
-        body_pr2pr,
-        body_pr2qt,
-        body_pr2va,
-        body_pr3ca,
-        body_pr3cc,
-        body_pr3id,
-        body_pr3nm,
-        body_pr3pr,
-        body_pr3qt,
-        body_pr3va,
-        body_pr4ca,
-        body_pr4cc,
-        body_pr4id,
-        body_pr4nm,
-        body_pr4pr,
-        body_pr4qt,
-        body_pr4va,
-        body_pr5ca,
-        body_pr5cc,
-        body_pr5id,
-        body_pr5nm,
-        body_pr5pr,
-        body_pr5qt,
-        body_pr5va,
-        body_pr6ca,
-        body_pr6cc,
-        body_pr6id,
-        body_pr6nm,
-        body_pr6pr,
-        body_pr6qt,
-        body_pr6va,
-        body_pr7ca,
-        body_pr7cc,
-        body_pr7id,
-        body_pr7nm,
-        body_pr7pr,
-        body_pr7qt,
-        body_pr7va,
-        body_pr8ca,
-        body_pr8cc,
-        body_pr8id,
-        body_pr8nm,
-        body_pr8pr,
-        body_pr8qt,
-        body_pr8va,
-        body_pr9ca,
-        body_pr9cc,
-        body_pr9id,
-        body_pr9nm,
-        body_pr9pr,
-        body_pr9qt,
-        body_pr9va
+        prca as hits_product_v2ProductCategory,
+        -- prcc -> Product Coupon Code 
+        prid as hits_product_productSKU,
+        prnm as hits_product_v2ProductName,
+        prpr as hits_product_productPrice,
+        prqt as hits_product_productQuantity,
+        prva as hits_product_productVariant
         from final
 """
 
 renaming = spark.sql(rename_query)
 renaming.createOrReplaceTempView('export')
-                        #.show(1, truncate=False)
-#                       .withColumn('tmp', f.explode('tmp')\
-#                       .select('tmp.prca',
-#                               'tmp.prcc',
-#                               'tmp.prid',
-#                               'tmp.prnm',
-#                               'tmp.prpr',
-#                               'tmp.prqt',
-#                               'tmp.prva', 'visitId')\
-#                               .show(50, truncate=False)
-#exploded.printSchema()
-#save = spark.sql('select * from export limit 10000')
-#export = save.coalesce(1).write.option('header', 'true').csv('export')
+save = spark.sql('select * from export limit 2000')
+export = save.coalesce(1).write.option('header', 'true').csv('export')
 
 # calculates total revenue for the date
 # 22.664.41

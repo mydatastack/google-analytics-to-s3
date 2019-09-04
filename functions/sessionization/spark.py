@@ -17,7 +17,8 @@ spark = SparkSession\
     .getOrCreate()
 
 spark.sparkContext.setLogLevel('ERROR')
-spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')\
+spark.conf.set('spark.sql.shuffle.partitions', '5')\ # checkout if the performance becomes faster
+          .set('spark.sql.session.timeZone', 'Europe/Berlin')\
 
 save_location = './'
 

@@ -13,16 +13,17 @@ from filter_tmp import main as filter_tmp
 spark = SparkSession\
     .builder\
     .appName("Python Spark SQL basic example")\
-    .config("spark.executor.memory", "6GB")\
+    .config("spark.executor.memory", "4GB")\
     .getOrCreate()
 
 spark.sparkContext.setLogLevel('ERROR')
-spark.conf.set('spark.sql.shuffle.partitions', '5')\ # checkout if the performance becomes faster
-          .set('spark.sql.session.timeZone', 'Europe/Berlin')\
+
+#spark.conf.set('spark.sql.shuffle.partitions', '5')\
+          #.set('spark.sql.session.timeZone', 'Europe/Berlin')\
 
 save_location = './'
 
-df = spark.read.json('./jsonsplit/*.jsonl')
+df = spark.read.json('./jsonsplitted/xaa.jsonl')
 
 if not 'body_el' in df.columns:
     df = df.withColumn('body_el', f.lit(''))
@@ -30,63 +31,8 @@ if not 'body_el' in df.columns:
 if not 'body_ev' in df.columns:
     df = df.withColumn('body_ev', f.lit(''))
 
-## start unflattening the product data
-col_names  = df.columns
-regex = re.compile('\d+')
-tmp = [y for x in [re.findall(regex, c) for c in col_names] for y in x]
-tmp_index = spark.createDataFrame(list(map(lambda x: Row(index=x), tmp))).distinct().sort(f.col('index')).collect()
-index = [int(i.asDict()['index']) for i in tmp_index]
 
-main = df.select('*')
-
-all_columns_df = df.select('*')
-
-for i in index:
-   col_name = 'body_pr' + str(i) + 'ca'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'cc'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'id'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'nm'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'pr'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'qt'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'va'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))
-
-
-all_columns_df
-
-bodies_schema = StructType([StructField('ms_id', StringType()),StructField('prca', StringType()),StructField('prcc', StringType()),StructField('prid', StringType()),StructField('prnm', StringType()),StructField('prpr', StringType()),StructField('prqt', StringType()),StructField('prva', StringType())])
-
-
-bodies = all_columns_df.rdd \
-   .flatMap(lambda x: [Row(
-           ms_id=x.message_id, prca=x['body_pr'+str(c)+'ca'], 
-           prcc=x['body_pr'+str(c)+'cc'], prid=x['body_pr'+str(c)+'id'], 
-           prnm=x['body_pr'+str(c)+'nm'], prpr=x['body_pr'+str(c)+'pr'], 
-           prqt=x['body_pr'+str(c)+'qt'], prva=x['body_pr'+str(c)+'va']) 
-           for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(bodies_schema)
-
-
-result = main.alias('main') \
-   .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
-
-
-result = result.drop('ms_id')
-## end unflattening the product data
-
-df_clean = result.drop(*columns_to_drop)
+df_clean = df.drop(*columns_to_drop)
 
 df_clean.createOrReplaceTempView('clicks')
 
@@ -254,7 +200,7 @@ def extract_source_source(is_new_session, body_dl, body_dr):
     elif (is_new_session == 1 and body_dr is not None):
         return parse_dr_source(body_dl, body_dr)
     else:
-        return None 
+        return '(not set)' 
 
 ## end parsing the source
 
@@ -513,7 +459,62 @@ with_session_ids = with_session_ids.withColumn(
         'hostname',
         udf_extract_hostname(with_session_ids['body_dl']))
 
-with_session_ids.createOrReplaceTempView('final')
+
+## start unflattening the product data
+col_names  = with_session_ids.columns
+regex = re.compile('\d+')
+tmp = [y for x in [re.findall(regex, c) for c in col_names] for y in x]
+tmp_index = spark.createDataFrame(list(map(lambda x: Row(index=x), tmp))).distinct().sort(f.col('index')).collect()
+index = [int(i.asDict()['index']) for i in tmp_index]
+
+main = with_session_ids.select('*')
+
+all_columns_df = with_session_ids.select('*')
+
+for i in index:
+   col_name = 'body_pr' + str(i) + 'ca'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'cc'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'id'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'nm'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'pr'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'qt'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+   col_name = 'body_pr' + str(i) + 'va'
+   if not col_name in col_names:
+       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))
+
+
+all_columns_df
+
+bodies_schema = StructType([StructField('ms_id', StringType()),StructField('prca', StringType()),StructField('prcc', StringType()),StructField('prid', StringType()),StructField('prnm', StringType()),StructField('prpr', StringType()),StructField('prqt', StringType()),StructField('prva', StringType())])
+
+
+bodies = all_columns_df.rdd \
+   .flatMap(lambda x: [Row(
+           ms_id=x.message_id, prca=x['body_pr'+str(c)+'ca'], 
+           prcc=x['body_pr'+str(c)+'cc'], prid=x['body_pr'+str(c)+'id'], 
+           prnm=x['body_pr'+str(c)+'nm'], prpr=x['body_pr'+str(c)+'pr'], 
+           prqt=x['body_pr'+str(c)+'qt'], prva=x['body_pr'+str(c)+'va']) 
+           for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(bodies_schema)
+
+
+result = main.alias('main') \
+   .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
+
+result = result.drop('ms_id')
+result.createOrReplaceTempView('final')
+## end unflattening the product data
 
 cities = spark.sql('select geo_city, geo_country, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" group by geo_city, geo_country order by visitors desc')
 #cities.show(50)
@@ -529,6 +530,7 @@ rename_query = """
     select 
         body_cid as fullVisitorId, 
         visit_id as visitId,
+        message_id as requestId,
         user_session_id as visitNumber,
         first_value as visitStartTime,
         date_format(ts, "yMMdd") as date,
@@ -617,20 +619,152 @@ rename_query = """
         body_tt as hits_transaction_transactionTax,
         body_t as hits_type,
         prca as hits_product_v2ProductCategory,
-        -- prcc -> Product Coupon Code 
+        -- prcc -> Product Coupon Code, fields needs to reconsidered
         prid as hits_product_productSKU,
         prnm as hits_product_v2ProductName,
         prpr as hits_product_productPrice,
         prqt as hits_product_productQuantity,
-        prva as hits_product_productVariant
+        prva as hits_product_productVariant,
+        is_new_session
         from final
 """
 
-renaming = spark.sql(rename_query)
+renaming = spark.sql(rename_query).cache()
 renaming.createOrReplaceTempView('export')
-save = spark.sql('select * from export limit 2000')
-export = save.coalesce(1).write.option('header', 'true').csv('export')
 
+
+export_products = ''
+export_sessions = spark.sql("""
+        select 
+            fullVisitorId, 
+            visitId, 
+            visitNumber, 
+            visitStartTime, 
+            date, 
+            trafficSource_campaign,
+            trafficSource_source,
+            trafficSource_medium,
+            trafficSource_keyword,
+            trafficSource_ad_content,
+            geoNetwork_continent,
+            geoNetwork_subContinent,
+            geoNetwork_country,
+            geoNetwork_region,
+            geoNetwork_metro,
+            geoNetwork_city,
+            geoNetwork_cityId,
+            geoNetwork_networkDomain,
+            geoNetwork_latitude,
+            geoNetwork_longitude,
+            geoNetwork_networkLocation,
+            device_browser,
+            device_browserVersion,
+            device_browserSize,
+            device_operatingSystem,
+            device_operatingSystemVersion,
+            device_isMobile,
+            device_mobileDeviceBranding,
+            device_mobileDeviceModel,
+            device_mobileInputSelector,
+            device_mobileDeviceInfo,
+            device_mobileDeviceMarketingName,
+            device_flashVersion,
+            device_javaEnabled,
+            device_language,
+            device_screenColors,
+            device_screenResolution,
+            device_deviceCategory,
+            landingPage,
+            hits_type
+        from export
+        where is_new_session='1'
+        """) 
+
+export_hits_pageviews = spark.sql("""
+        select
+            fullVisitorId,
+            visitId,
+            visitStartTime,
+            hits_hitNumber,
+            hits_time,
+            hits_hour,
+            hits_minute,
+            hits_isSecure,
+            hits_isInteractive,
+            hits_referer,
+            hits_page_pagePath,
+            hits_page_hostname,
+            hits_page_pageTitle,
+            hits_page_pagePathLevel1,
+            hits_page_pagePathLevel2,
+            hits_page_pagePathLevel3,
+            hits_page_pagePathLevel4,
+            hits_eventInfo_eventCategory,
+            hits_eventInfo_eventAction,
+            hits_eventInfo_eventLabel,
+            hits_eventInfo_eventValue,
+            hits_type
+        from export
+        where hits_type='pageview'
+        """)
+
+export_hits_events = spark.sql("""
+        select
+            fullVisitorId,
+            visitId,
+            visitStartTime,
+            hits_hitNumber,
+            hits_time,
+            hits_hour,
+            hits_minute,
+            hits_isSecure,
+            hits_isInteractive,
+            hits_referer,
+            hits_page_pagePath,
+            hits_page_hostname,
+            hits_page_pageTitle,
+            hits_page_pagePathLevel1,
+            hits_page_pagePathLevel2,
+            hits_page_pagePathLevel3,
+            hits_page_pagePathLevel4,
+            hits_eventInfo_eventCategory,
+            hits_eventInfo_eventAction,
+            hits_eventInfo_eventLabel,
+            hits_eventInfo_eventValue,
+            hits_type
+        from export
+        where hits_type='event'
+        """)
+
+export_products = spark.sql("""
+        select
+            fullVisitorId,
+            visitid,
+            visitStartTime,
+            hits_hitNumber,
+            hits_time,
+            hits_hour,
+            hits_minute,
+            hits_product_productQuantity,
+            '' as hits_product_productRefundAmount,
+            hits_product_productPrice,
+            hits_product_productSKU,
+            hits_product_productVariant,
+            hits_eCommerceAction_option,
+            hits_eCommerceAction_step,
+            hits_eCommerceAction_action_type,
+            hits_item_transactionId,
+            hits_transaction_transactionRevenue
+            hits_type
+        from export
+        where hits_type='event' and hits_eCommerceAction_action_type='purchase' 
+        """) 
+
+export_products.coalesce(1).write.option('header', 'true').csv('export-products')
+export_hits_pageviews.coalesce(1).write.option('header', 'true').csv('export-pageviews')
+export_hits_events.coalesce(1).write.option('header', 'true').csv('export-events')
+export_sessions.coalesce(1).write.option('header', 'true').csv('export-sessions')
+#save_export_products = export_products.coalesce(1).write.option('header', 'true').csv('export_products')
 # calculates total revenue for the date
 # 22.664.41
 #spark.sql('select round(sum(body_tr)) as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event"').show()

@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DateType, StringType, StructType, StructField
 from pyspark.sql import functions as f
+from pyspark.sql.window import Window
 from pyspark.sql import types as t
 from pyspark.sql import Row
 from columns import columns_to_drop, required_columns
@@ -13,10 +14,10 @@ from filter_tmp import main as filter_tmp
 spark = SparkSession\
     .builder\
     .appName("Python Spark SQL basic example")\
-    .config("spark.executor.memory", "4GB")\
     .getOrCreate()
 
 spark.sparkContext.setLogLevel('ERROR')
+spark.conf.set('spark.sql.crossJoin.enabled', 'true')
 
 #spark.conf.set('spark.sql.shuffle.partitions', '5')\
           #.set('spark.sql.session.timeZone', 'Europe/Berlin')\
@@ -87,8 +88,22 @@ from
 
 with_session_ids = spark.sql(session_id_query)
 
-import urllib
+w = Window.partitionBy(with_session_ids.visit_id)
 
+with_session_ids = with_session_ids\
+    .withColumn(
+            'total_revenue_per_session',
+            f.when(with_session_ids.body_t == 'event', f.sum(with_session_ids.body_tr).over(w)).otherwise(f.lit('')))
+
+#with_session_ids = spark.sql("""
+#        with filtered as (
+#        select sum(body_tr) over (partition by visit_id) as total_revenue_per_session
+#        from sessionized 
+#        where body_t='event'
+#        ) select s.*, f.* from sessionized s, filtered f
+#        """)
+
+import urllib
 
 ## start parsing the source
 import urllib.parse as urlparse
@@ -460,6 +475,34 @@ with_session_ids = with_session_ids.withColumn(
         udf_extract_hostname(with_session_ids['body_dl']))
 
 
+## start calculating hits_eCommerceAction_action_type
+
+def action_type(pa: str) -> str:
+    if pa == 'click':
+        return 1
+    elif pa == 'detail':
+        return 2
+    elif pa == 'add':
+        return 3
+    elif pa == 'checkout':
+        return 5
+    elif pa == 'purchase':
+        return 6
+    elif pa == 'refund':
+        return 7
+    elif pa == 'checkout_option':
+        return 8
+    else:
+        return 0
+
+udf_map_action_type = f.udf(action_type)
+
+with_session_ids = with_session_ids.withColumn(
+        'action_type',
+        udf_map_action_type(with_session_ids['body_pa']))
+
+## end calculating hits_eCommerceAction_action_type
+
 ## start unflattening the product data
 col_names  = with_session_ids.columns
 regex = re.compile('\d+')
@@ -513,18 +556,10 @@ result = main.alias('main') \
    .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
 
 result = result.drop('ms_id')
-result.createOrReplaceTempView('final')
 ## end unflattening the product data
 
-cities = spark.sql('select geo_city, geo_country, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" group by geo_city, geo_country order by visitors desc')
-#cities.show(50)
 
-
-visitors_total = spark.sql('select count(body_cid) as total_visits from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"')
-#visitors_total.show()
-
-visitors_by_medium = spark.sql('select traffic_source_medium, count(body_cid) as visits from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visits desc')
-#visitors_by_medium.show(50)
+result.createOrReplaceTempView('final')
 
 rename_query = """
     select 
@@ -611,10 +646,11 @@ rename_query = """
         '' as hits_item_localItemRevenue,
         body_col as hits_eCommerceAction_option,
         body_cos as hits_eCommerceAction_step,
-        body_pa as hits_eCommerceAction_action_type,
+        action_type as hits_eCommerceAction_action_type,
         body_tcc as hits_transation_transactionCoupon,
         body_ti as hits_transaction_transactionId,
         body_tr as hits_transaction_transactionRevenue,
+        total_revenue_per_session as totals_transactionRevenue,
         body_ts as hits_transaction_transactionShipping,
         body_tt as hits_transaction_transactionTax,
         body_t as hits_type,
@@ -629,7 +665,7 @@ rename_query = """
         from final
 """
 
-renaming = spark.sql(rename_query).cache()
+renaming = spark.sql(rename_query)
 renaming.createOrReplaceTempView('export')
 
 
@@ -753,43 +789,14 @@ export_products = spark.sql("""
             hits_eCommerceAction_option,
             hits_eCommerceAction_step,
             hits_eCommerceAction_action_type,
+            totals_transactionRevenue,
             hits_item_transactionId,
-            hits_transaction_transactionRevenue
+            hits_transaction_transactionRevenue,
             hits_type
         from export
-        where hits_type='event' and hits_eCommerceAction_action_type='purchase' 
+        where hits_type='event' and hits_product_productSKU <> '' 
         """) 
 
-export_products.coalesce(1).write.option('header', 'true').csv('export-products')
-export_hits_pageviews.coalesce(1).write.option('header', 'true').csv('export-pageviews')
-export_hits_events.coalesce(1).write.option('header', 'true').csv('export-events')
-export_sessions.coalesce(1).write.option('header', 'true').csv('export-sessions')
-#save_export_products = export_products.coalesce(1).write.option('header', 'true').csv('export_products')
-# calculates total revenue for the date
-# 22.664.41
-#spark.sql('select round(sum(body_tr)) as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event"').show()
-#spark.sql('select visit_id, traffic_source_source, traffic_source_medium, sum(body_tr) as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event" group by visit_id, traffic_source_source, traffic_source_medium').show()
+export_products.select('*').write.option('header', 'true').csv('export-products')
+#export_products.select('*').show(5)
 
-#visit_id_revenue = spark.sql('select visit_id, body_tr as revenue from final where ts between "2019-08-09" and "2019-08-10" and body_pa="purchase" and body_t="event"')
-#visit_id_source = spark.sql('select *, traffic_source_source, traffic_source_medium, visit_id from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"')
-#join_revenue_source = visit_id_revenue.join(visit_id_source, visit_id_revenue['visit_id'] == visit_id_source['visit_id'])
-#join_revenue_source.createOrReplaceTempView('revenue_table')
-
-#spark.sql('select sum(revenue) as total_revenue from revenue_table').show()
-#spark.sql('select traffic_source_medium, round(sum(revenue)) as total_revenue from revenue_table group by traffic_source_medium order by total_revenue desc').show()
-
-#spark.sql('select count(distinct body_cid) from final where ts between "2019-08-09" and "2019-08-10"').show()
-#spark.sql('select traffic_source_source, traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_source, traffic_source_medium order by visitors desc').show()
-#number_of_visitors = spark.sql('select distinct body_cid from final where is_new_session="1" and ts between "2019-08-09" and "2019-08-10"').count()
-#print('number of visitors for 09.08.2019: ', number_of_visitors)
-
-#spark.sql('select count(distinct body_cid) as nutzer from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"').show()
-#spark.sql('select count(distinct body_cid) as bots from final where ts between "2019-08-09" and "2019-08-10" and ua_detected_is_bot="false"').show()
-
-#spark.sql('select traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc ').show()
-
-#number_of_visitors = spark.sql('select traffic_source_medium, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" and is_new_session="1" group by traffic_source_medium order by visitors desc')
-#number_of_visitors.select('traffic_source_medium', 'visitors').agg({'visitors': 'sum'}).show(50)
-#number_of_visitors.select('*').show(50)
-#spark.sql('select geo_city, count(distinct body_cid) as visitors from final where ts between "2019-08-09" and "2019-08-10" group by geo_city order by visitors desc').show(500, truncate=False) 
-#spark.sql('select geo_city, ip, ua_detected_device_type from final where ts between "2019-08-09" and "2019-08-10" and geo_city="NaN"').show(100)

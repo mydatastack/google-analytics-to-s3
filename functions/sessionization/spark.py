@@ -17,7 +17,8 @@ spark = SparkSession\
     .getOrCreate()
 
 spark.sparkContext.setLogLevel('ERROR')
-spark.conf.set('spark.sql.crossJoin.enabled', 'true')
+spark.conf.set('spark.driver.memory', '6g')
+#spark.conf.set('spark.sql.crossJoin.enabled', 'true')
 
 #spark.conf.set('spark.sql.shuffle.partitions', '5')\
           #.set('spark.sql.session.timeZone', 'Europe/Berlin')\
@@ -32,6 +33,35 @@ if not 'body_el' in df.columns:
 if not 'body_ev' in df.columns:
     df = df.withColumn('body_ev', f.lit(''))
 
+## start renaming the column body_t according to GA360
+def hits_type(t: str) -> str:
+    if t == 'pageview':
+        return 'PAGE'
+    elif t == 'screenview':
+        return 'APPVIEW'
+    elif t == 'event':
+        return 'EVENT'
+    elif t == 'transaction':
+        return 'TRANSACTION'
+    elif t == 'item':
+        return 'ITEM'
+    elif t == 'social':
+        return 'SOCIAL'
+    elif t == 'exception':
+        return 'EXCEPTION'
+    elif t == 'timing':
+        return 'TIMING'
+    else:
+        return 'UNKNOWN'
+
+
+udf_map_hits_type = f.udf(hits_type)
+
+df = df.withColumn(
+        'hits_type',
+        udf_map_hits_type(df['body_t']))
+
+## end renaming the column 
 
 df_clean = df.drop(*columns_to_drop)
 
@@ -93,15 +123,9 @@ w = Window.partitionBy(with_session_ids.visit_id)
 with_session_ids = with_session_ids\
     .withColumn(
             'total_revenue_per_session',
-            f.when(with_session_ids.body_t == 'event', f.sum(with_session_ids.body_tr).over(w)).otherwise(f.lit('')))
-
-#with_session_ids = spark.sql("""
-#        with filtered as (
-#        select sum(body_tr) over (partition by visit_id) as total_revenue_per_session
-#        from sessionized 
-#        where body_t='event'
-#        ) select s.*, f.* from sessionized s, filtered f
-#        """)
+            f.when(with_session_ids.is_new_session == '1', 
+                    f.sum(f.when((with_session_ids.body_t == 'event') & (with_session_ids.body_pa == 'purchase'), with_session_ids.body_tr).otherwise(f.lit(''))
+                  ).over(w)).otherwise(f.lit('')))
 
 import urllib
 
@@ -503,6 +527,7 @@ with_session_ids = with_session_ids.withColumn(
 
 ## end calculating hits_eCommerceAction_action_type
 
+
 ## start unflattening the product data
 col_names  = with_session_ids.columns
 regex = re.compile('\d+')
@@ -558,6 +583,34 @@ result = main.alias('main') \
 result = result.drop('ms_id')
 ## end unflattening the product data
 
+
+## starting calculating productRevenue
+
+def product_revenue(qt: int, pr: int, action_type: int) -> int:
+    if action_type == '6':
+        return float(qt) * float(pr)
+    else:
+        return None
+
+udf_product_revenue = f.udf(product_revenue)
+
+result = result.withColumn(
+        'product_revenue',
+        udf_product_revenue(
+                result['prqt'],
+                result['prpr'],
+                result['action_type']
+                ))
+## ending calculating productRevenue
+#revenue_per_session = result\
+#        .select('visit_id', 'body_tr', 'action_type', 'body_t')\
+#        .where('action_type == 6 and body_t ==  "event"')\
+#        .distinct()\
+#        .groupBy('visit_id')\
+#        .agg({'body_tr': 'sum'})\
+#        .withColumnRenamed('sum(body_tr)', 'revenue_per_session')
+#
+#revenue_per_session.select('revenue_per_session', 'visit_id').show(5, False)
 
 result.createOrReplaceTempView('final')
 
@@ -653,7 +706,7 @@ rename_query = """
         total_revenue_per_session as totals_transactionRevenue,
         body_ts as hits_transaction_transactionShipping,
         body_tt as hits_transaction_transactionTax,
-        body_t as hits_type,
+        hits_type,
         prca as hits_product_v2ProductCategory,
         -- prcc -> Product Coupon Code, fields needs to reconsidered
         prid as hits_product_productSKU,
@@ -661,6 +714,7 @@ rename_query = """
         prpr as hits_product_productPrice,
         prqt as hits_product_productQuantity,
         prva as hits_product_productVariant,
+        product_revenue as hits_product_productRevenue,
         is_new_session
         from final
 """
@@ -669,7 +723,6 @@ renaming = spark.sql(rename_query)
 renaming.createOrReplaceTempView('export')
 
 
-export_products = ''
 export_sessions = spark.sql("""
         select 
             fullVisitorId, 
@@ -710,6 +763,7 @@ export_sessions = spark.sql("""
             device_screenColors,
             device_screenResolution,
             device_deviceCategory,
+            totals_transactionRevenue,
             landingPage,
             hits_type
         from export
@@ -741,35 +795,36 @@ export_hits_pageviews = spark.sql("""
             hits_eventInfo_eventValue,
             hits_type
         from export
-        where hits_type='pageview'
+        where hits_type='PAGE'
         """)
 
 export_hits_events = spark.sql("""
         select
-            fullVisitorId,
-            visitId,
-            visitStartTime,
-            hits_hitNumber,
-            hits_time,
-            hits_hour,
-            hits_minute,
-            hits_isSecure,
-            hits_isInteractive,
-            hits_referer,
-            hits_page_pagePath,
-            hits_page_hostname,
-            hits_page_pageTitle,
-            hits_page_pagePathLevel1,
-            hits_page_pagePathLevel2,
-            hits_page_pagePathLevel3,
-            hits_page_pagePathLevel4,
-            hits_eventInfo_eventCategory,
-            hits_eventInfo_eventAction,
-            hits_eventInfo_eventLabel,
-            hits_eventInfo_eventValue,
-            hits_type
+           fullVisitorId,
+           visitId,
+           visitStartTime,
+           hits_hitNumber,
+           hits_time,
+           hits_hour,
+           hits_minute,
+           hits_isSecure,
+           hits_isInteractive,
+           hits_referer,
+           hits_page_pagePath,
+           hits_page_hostname,
+           hits_page_pageTitle,
+           hits_page_pagePathLevel1,
+           hits_page_pagePathLevel2,
+           hits_page_pagePathLevel3,
+           hits_page_pagePathLevel4,
+           hits_eventInfo_eventCategory,
+           hits_eventInfo_eventAction,
+           hits_eventInfo_eventLabel,
+           hits_eventInfo_eventValue,
+           hits_type
         from export
-        where hits_type='event'
+        where hits_type='EVENT'
+        and hits_product_productSKU is null
         """)
 
 export_products = spark.sql("""
@@ -781,22 +836,35 @@ export_products = spark.sql("""
             hits_time,
             hits_hour,
             hits_minute,
+            hits_product_productPrice,
             hits_product_productQuantity,
             '' as hits_product_productRefundAmount,
-            hits_product_productPrice,
             hits_product_productSKU,
             hits_product_productVariant,
             hits_eCommerceAction_option,
             hits_eCommerceAction_step,
             hits_eCommerceAction_action_type,
-            totals_transactionRevenue,
             hits_item_transactionId,
+            hits_product_productRevenue,
             hits_transaction_transactionRevenue,
             hits_type
         from export
-        where hits_type='event' and hits_product_productSKU <> '' 
+        where hits_product_productSKU <> '' 
+        and hits_type="EVENT"
         """) 
 
-export_products.select('*').write.option('header', 'true').csv('export-products')
-#export_products.select('*').show(5)
+#export_sessions.select('*').coalesce(1).write.option('header', 'true').csv('export-sessions')
+#export_hits_pageviews.select('*').coalesce(1).write.option('header', 'true').csv('export-pageviews')
+#export_hits_events.select('*').coalesce(1).write.option('header', 'true').csv('export-events')
+export_products.select('*').coalesce(1).write.option('header', 'true').csv('export-products')
+
+
+##export_products\
+#    .select('*')\
+#    .where('hits_time between "2019-08-09" and "2019-08-10" and hits_type="event" and hits_eCommerceAction_action_type="6"')\
+#    .groupBy('visitId')\
+#    .agg({'totals_transactionRevenue': 'avg'})\
+#    .agg({'avg(totals_transactionRevenue)': 'sum'})\
+#    # works properly it returns 22664
+
 

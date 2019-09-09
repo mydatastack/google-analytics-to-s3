@@ -10,6 +10,7 @@ from pyspark.sql.window import Window
 from page_path import main as parse_page_path
 import re
 from filter_tmp import main as filter_tmp
+import os
 
 spark = SparkSession\
     .builder\
@@ -853,10 +854,10 @@ export_products = spark.sql("""
         and hits_type="EVENT"
         """) 
 
-#export_sessions.select('*').coalesce(1).write.option('header', 'true').csv('export-sessions')
-#export_hits_pageviews.select('*').coalesce(1).write.option('header', 'true').csv('export-pageviews')
-#export_hits_events.select('*').coalesce(1).write.option('header', 'true').csv('export-events')
-export_products.select('*').coalesce(1).write.option('header', 'true').csv('export-products')
+export_sessions.select('*').coalesce(1).write.option('header', 'true').csv('export/sessions')
+export_hits_pageviews.select('*').coalesce(1).write.option('header', 'true').csv('export/pageviews')
+export_hits_events.select('*').coalesce(1).write.option('header', 'true').csv('export/events')
+export_products.select('*').coalesce(1).write.option('header', 'true').csv('export/products')
 
 
 ##export_products\

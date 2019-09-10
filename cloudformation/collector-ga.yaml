@@ -25,17 +25,17 @@ Resources:
     DependsOn:
       - BucketPermission
     Type: AWS::S3::Bucket
-    Properties:
-      NotificationConfiguration:
-        TopicConfigurations:
-          - Event: 's3:ObjectCreated:Put'
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: raw/ga/
-            Topic:
-              Ref: BucketEventsTopic
+    #    Properties:
+    #      NotificationConfiguration:
+    #        TopicConfigurations:
+    #          - Event: 's3:ObjectCreated:Put'
+    #            Filter:
+    #              S3Key:
+    #                Rules:
+    #                  - Name: prefix
+    #                    Value: raw/ga/
+    #            Topic:
+    #              Ref: BucketEventsTopic
               
   BucketPermission:
     Type: AWS::SNS::TopicPolicy
@@ -106,11 +106,11 @@ Resources:
             Action:
               - lambda:InvokeFunction
             Resource:
-              Fn::GetAtt: [FirehoseProcessorFunction, Arn]
+              Fn::GetAtt: [FirehoseTransformationFunction, Arn]
       Roles:
         - Ref: KinesisFirehoseRole
 
-  FirehoseProcessorFunction:
+  FirehoseTransformationFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7 
@@ -118,7 +118,7 @@ Resources:
       Timeout: 60
       ReservedConcurrentExecutions: 5 # remove when the function is safe
       Handler: main.handler 
-      CodeUri: ../functions/frh-processor/
+      CodeUri: ../functions/transformation/
 
   PartitionerFunction:
     Type: AWS::Serverless::Function
@@ -186,7 +186,7 @@ Resources:
             - Parameters:
               - ParameterName: LambdaArn
                 ParameterValue: 
-                  Fn::GetAtt: [FirehoseProcessorFunction, Arn]
+                  Fn::GetAtt: [FirehoseTransformationFunction, Arn]
               Type: Lambda
 
   ApiGatewayRestApi:

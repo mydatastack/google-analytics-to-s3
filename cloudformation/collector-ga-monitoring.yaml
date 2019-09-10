@@ -12,7 +12,7 @@ Parameters:
   FallbackEmail:
     Type: String
   S3AlarmPeriod:
-    Type: String
+    Type: Number 
   BucketEventsTopic:
     Type: String
 
@@ -40,8 +40,6 @@ Resources:
   AlarmLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName:
-        Fn::Sub: '${Name}-lambda-role-${Stage}'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -116,20 +114,18 @@ Resources:
       TopicArn:
         Ref: AlarmTopic
 
-  FallBackEmailSubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      Endpoint:
-        Ref: FallbackEmail
-      Protocol: email
-      TopicArn:
-        Ref: AlarmTopic
+        #  FallBackEmailSubscription:
+        #    Type: AWS::SNS::Subscription
+        #    Properties:
+        #      Endpoint:
+        #        Ref: FallbackEmail
+        #      Protocol: email
+        #      TopicArn:
+        #        Ref: AlarmTopic
 
   S3MissingDataAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: 
-        Fn::Sub: 'Google-Analytics-Missing-Data-${Name}-${Stage}'
       AlarmDescription: Trigger alarm if no new incoming Google Analytics data in S3 bucket.
       AlarmActions: 
         - Ref: AlarmTopic
@@ -139,10 +135,9 @@ Resources:
           Value: successfully
       Namespace: Pipes
       Statistic: Sum
-      Period: 
-        Ref: S3AlarmPeriod
-      EvaluationPeriods: 1
+      Period: 3600
+        #Ref: S3AlarmPeriod
+      EvaluationPeriods: 1 
       Threshold: 1
       ComparisonOperator: LessThanThreshold
       TreatMissingData: breaching
-

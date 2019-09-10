@@ -118,7 +118,7 @@ Resources:
       Timeout: 60
       ReservedConcurrentExecutions: 5 # remove when the function is safe
       Handler: main.handler 
-      CodeUri: ../functions/frh-processor-py/
+      CodeUri: ../functions/frh-processor/
 
   PartitionerFunction:
     Type: AWS::Serverless::Function
@@ -176,7 +176,7 @@ Resources:
           IntervalInSeconds: 60
           SizeInMBs: 10
         CompressionFormat: UNCOMPRESSED
-        Prefix: "raw/ga/year=!{timestamp:YYYY}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
+        Prefix: "raw/ga/year=!{timestamp:YYYY}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
         ErrorOutputPrefix: "errors/!{firehose:random-string}/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd}/"
         RoleARN:
           Fn::GetAtt: [ KinesisFirehoseRole, Arn ]

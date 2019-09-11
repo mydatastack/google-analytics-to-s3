@@ -1,0 +1,12 @@
+boto3==1.9.225
+botocore==1.12.225
+docutils==0.15.2
+jmespath==0.9.4
+maxminddb==1.4.1
+python-dateutil==2.8.0
+PyYAML==5.1.2
+s3transfer==0.2.1
+six==1.12.0
+ua-parser==0.8.0
+urllib3==1.25.3
+user-agents==2.0

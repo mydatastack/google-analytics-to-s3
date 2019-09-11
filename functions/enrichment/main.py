@@ -1,35 +1,31 @@
-from adapters.stdin import s3_trigger 
-from adapters.stdout import main as outmain
-from adapters.stderr import main as invalidmain
-from filters.ip import main as ipmain
-from filters.user_agent import main as uamain
+from adapters.s3_trigger import s3_trigger
+from adapters.s3_writer import s3_writer, s3_failed
+from filters.ip import ip_lookup 
+from filters.user_agent import ua_lookup 
+from filters.general import unpack_ip, unpack_ua, merge_to_dict, add_status, json_decode 
 from functools import reduce
+from typing import Generator
+from utils.logger import log_generator
+from utils.init import init, pipe
 import json
 
-pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
-
-def init(stdin, filters, stdout, stderr): 
-    def inner(event: dict):
-        return pipe([
-                    stdin,
-                    *filters,
-                    stdout,
-                    stderr
-                    ]) (event)
-    return inner
-
 pipeline = init(
-        stdin=s3_trigger,
-        filters=[ipmain, uamain],
-        stdout=outmain,
-        stderr=invalidmain
+        input_=s3_trigger,
+        filters=[
+                unpack_ip,
+                unpack_ua,
+                ua_lookup,
+                ip_lookup,
+                merge_to_dict,
+                json_decode,
+                add_status,
+                ],
+        output=s3_writer,
+        error=s3_failed
         )
 
-def main(event: dict, ctx=None) -> ():
-    pipeline(event)
-
-
-
+def handler(event: dict, ctx=None) -> ():
+    return pipeline(event)
 
 
 if __name__ == '__main__':
@@ -45,6 +41,6 @@ if __name__ == '__main__':
                 except Exception as e:
                     print(e)
                 else:
-                    self.assertEqual(main(event), "success")
+                    self.assertEqual(handler(event), "success")
 
     unittest.main()

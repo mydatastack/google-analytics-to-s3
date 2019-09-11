@@ -25,17 +25,17 @@ Resources:
     DependsOn:
       - BucketPermission
     Type: AWS::S3::Bucket
-    #    Properties:
-    #      NotificationConfiguration:
-    #        TopicConfigurations:
-    #          - Event: 's3:ObjectCreated:Put'
-    #            Filter:
-    #              S3Key:
-    #                Rules:
-    #                  - Name: prefix
-    #                    Value: raw/ga/
-    #            Topic:
-    #              Ref: BucketEventsTopic
+    Properties:
+      NotificationConfiguration:
+        TopicConfigurations:
+          - Event: 's3:ObjectCreated:Put'
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: raw/ga/
+            Topic:
+              Ref: BucketEventsTopic
               
   BucketPermission:
     Type: AWS::SNS::TopicPolicy
@@ -120,7 +120,7 @@ Resources:
       Handler: main.handler 
       CodeUri: ../functions/transformation/
 
-  PartitionerFunction:
+  EnrichmentFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7
@@ -128,7 +128,7 @@ Resources:
       Timeout: 60
       ReservedConcurrentExecutions: 5 # remove when the function is safe
       Handler: main.handler
-      CodeUri: ../functions/ga-partitioner/
+      CodeUri: ../functions/enrichment/
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -147,16 +147,16 @@ Resources:
                   - - Fn::GetAtt: [ DataBucket , Arn ]
                     - "/*"
 
-  PartitionerFunctionSubscription:
+  EnrichmentFunctionSubscription:
     Type: AWS::SNS::Subscription
     Properties:
       Endpoint:
-        Fn::GetAtt: [PartitionerFunction, Arn]
+        Fn::GetAtt: [EnrichmentFunction, Arn]
       TopicArn:
         Ref: BucketEventsTopic
       Protocol: lambda
 
-  PartitionerInvokePermissions:
+  EnrichmentFunctionInvokePermissions:
     Type: AWS::Lambda::Permission
     Properties:
       Action: 'lambda:InvokeFunction'
@@ -164,7 +164,7 @@ Resources:
       SourceArn: 
         Ref: BucketEventsTopic
       FunctionName:
-        Fn::GetAtt: [PartitionerFunction, Arn]
+        Fn::GetAtt: [EnrichmentFunction, Arn]
 
   EventFirehose:
     Type: AWS::KinesisFirehose::DeliveryStream

@@ -1,5 +1,6 @@
 from adapters.s3_trigger import s3_trigger
 from adapters.s3_writer import s3_writer, s3_failed
+from adapters.sns_reader import sns_reader
 from filters.ip import ip_lookup 
 from filters.user_agent import ua_lookup 
 from filters.general import unpack_ip, unpack_ua, merge_to_dict, add_status, json_decode 
@@ -10,7 +11,7 @@ from utils.init import init, pipe
 import json
 
 pipeline = init(
-        input_=s3_trigger,
+        input_=sns_reader,
         filters=[
                 unpack_ip,
                 unpack_ua,
@@ -35,7 +36,7 @@ if __name__ == '__main__':
         def test_read_file_data(self):
             pass
         def test_run_main(self):
-            with open("./payload_s3.json") as file:
+            with open("./payload_sns.json") as file:
                 try:
                     event = json.load(file)
                 except Exception as e:

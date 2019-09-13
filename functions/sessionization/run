@@ -1,0 +1,3 @@
+DEV_ENDPOINT=glue@ec2-35-158-96-176.eu-central-1.compute.amazonaws.com
+scp spark.py $DEV_ENDPOINT:/home/glue/spark.py
+ssh -i ~/.ssh/tarasowski $DEV_ENDPOINT gluepython spark.py

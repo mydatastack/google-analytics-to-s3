@@ -1,25 +1,46 @@
+### import glue modules
+from awsglue.transforms import *
+from awsglue.utils import getResolvedOptions
+from awsglue.context import GlueContext
+from awsglue.dynamicframe import DynamicFrame
+from awsglue.job import Job
+
+### import spark modules
 from pyspark.sql import SparkSession
+from pyspark.context import SparkContext
 from pyspark.sql.types import DateType, StringType, StructType, StructField
 from pyspark.sql import functions as f
 from pyspark.sql.window import Window
 from pyspark.sql import types as t
 from pyspark.sql import Row
 from pyspark.sql.window import Window
+
+### import python modules
 import sys
 import re
 import os
+from datetime import datetime
 
-spark = SparkSession\
-    .builder\
-    .appName("Python Spark SQL basic example")\
-    .getOrCreate()
+### initialize spark session
 
-spark.sparkContext.setLogLevel('ERROR')
-spark.conf.set('spark.driver.memory', '6g')
-spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
+sc = SparkContext.getOrCreate()
+glue_context = GlueContext(sc)
+spark = glue_context.spark_session
 
-df = spark.read.json('./jsonsplitted/xaa.jsonl')
+### parameters
+glue_db = "odoscope"
+glue_tbl = "xaa_jsonl"
+s3_write_path = "s3://test-ga-glue-integration/write"
 
+### extract (read data)
+dt_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+print("Start time:", dt_start)
+
+dynamic_frame_read = glue_context.create_dynamic_frame.from_catalog(database=glue_db, table_name=glue_tbl)
+
+### convert dynmaic frame to data frame to use standard pyspark functions
+df = dynamic_frame_read.toDF()
+df.printSchema()
 
 #################### Start importing dependencies ###############
 
@@ -54,22 +75,22 @@ columns_to_drop = [
         ]
 
 
-def parse_url(url: str) -> tuple:
+def parse_url(url) :
     return urlparse.urlparse(url)
 
-def path_is_empty(url: str) -> str:
+def path_is_empty(url) :
     return url.path if len(str(url.path)) != 0 else None 
 
-def extract_path_value(path: str) -> str:
+def extract_path_value(path) :
     if path == None:
         return '' 
     else:
         return path 
 
-def split_path(path: str) -> list:
+def split_path(path) :
     return path.split('/')[1:]
 
-def construct_levels(p: list):
+def construct_levels(p):
     path = list(filter(None, p))
     if len(path) == 1:
         return [str('/' + path[0]), '', '', ''] 
@@ -92,7 +113,7 @@ def parse_page_path(url):
             ]) (url)
 
 
-def filter_tmp(xs: list) -> list:
+def filter_tmp(xs) :
     return xs
     return [
             sublist
@@ -109,7 +130,7 @@ if not 'body_ev' in df.columns:
     df = df.withColumn('body_ev', f.lit(''))
 
 ## start renaming the column body_t according to GA360
-def hits_type(t: str) -> str:
+def hits_type(t) :
     if t == 'pageview':
         return 'PAGE'
     elif t == 'screenview':
@@ -205,8 +226,8 @@ with_session_ids = with_session_ids\
 import urllib
 
 ## start parsing the source
-import urllib.parse as urlparse
-from functools import partial, reduce
+import urlparse as urlparse
+from functools import partial
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
@@ -229,21 +250,21 @@ def extract_query_value(xs):
     else:
         return xs[4]
 
-def parse_url(url: str):
+def parse_url(url):
     return urlparse.urlparse(url)
 
-def query_is_empty(url: str):
+def query_is_empty(url):
     return url if len(str(url.query)) != 0 else []
 
 def split_item(item):
     return item.split('=')
 
-def split_query(qr: str):
+def split_query(qr):
     query = qr.split('&')
     query_clean = [x for x in query if x and x.find('=') > 0]
     return dict(split_item(item) for item in query_clean)
 
-def identify_channel(channel_list: list, qr: str):
+def identify_channel(channel_list, qr):
     channel = [s for s in qr if any(xz in s for xz in channel_list)]
     if len(channel) == 0:
         return '(direct)'
@@ -269,7 +290,7 @@ def parse_dl_source(url):
             partial(identify_channel, channels),
             ]) (url)
 
-def split_hostname(body_dr: str) -> str:
+def split_hostname(body_dr) :
     hostname = parse_url(body_dr).netloc
     hostname_splitted = hostname.split('.')
     try:
@@ -285,7 +306,7 @@ def split_hostname(body_dr: str) -> str:
         print(e)
         return hostname
  
-def parse_dr_source(body_dl: str, body_dr: str):
+def parse_dr_source(body_dl, body_dr):
     if body_dr.find('android-app') == 0:
         return body_dr.split('//')[1]
     hostname = split_hostname(body_dr) 
@@ -320,7 +341,7 @@ def extract_source_source(is_new_session, body_dl, body_dr):
 
 ## start parsing the campaign
 
-def identify_campaign(qr: dict):
+def identify_campaign(qr):
     return qr['utm_campaign'] if 'utm_campaign' in qr else '(not set)'
 
 def parse_source_campaign(url):
@@ -332,7 +353,7 @@ def parse_source_campaign(url):
             identify_campaign,
             ]) (url)
 
-def parse_dr_campaign(body_dl: str):
+def parse_dr_campaign(body_dl):
     empty_query = len(query_is_empty(parse_url(body_dl))) == 0
     query = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
     if empty_query: 
@@ -353,7 +374,7 @@ def extract_source_campaign(is_new_session, body_dl, body_dr):
 
 ## start parsing the medium
 
-def identify_medium(qr: dict):
+def identify_medium(qr):
     if 'utm_medium' in qr:
         return qr['utm_medium']
     if 'gclid' in qr:
@@ -361,7 +382,7 @@ def identify_medium(qr: dict):
     else:
         return '(none)'
 
-def parse_source_medium(url: str):
+def parse_source_medium(url):
     return pipe([
             parse_url,
             query_is_empty,
@@ -392,7 +413,7 @@ paid_channels = [
 def match(xs):
     return [s for s in xs if any(xz in s for xz in paid_channel)]
 
-def parse_dr_medium(body_dr: str, body_dl: str):
+def parse_dr_medium(body_dr, body_dl):
     hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
     empty_query = len(query_is_empty(parse_url(body_dl))) == 0
     query = split_query(extract_query_value(query_is_empty(parse_url(body_dl))))
@@ -422,13 +443,13 @@ def extract_source_medium(is_new_session, body_dl, body_dr):
 
 ## start parsing the keyword
 
-def identify_keyword(qr: dict):
+def identify_keyword(qr):
     if 'utm_term' in qr:
         return qr['utm_term']
     else:
         return '(not set)'
 
-def parse_source_keyword(url: str):
+def parse_source_keyword(url):
     return pipe([
             parse_url,
             query_is_empty,
@@ -437,7 +458,7 @@ def parse_source_keyword(url: str):
             identify_keyword,
             ]) (url)
 
-def parse_dr_keyword(body_dr: str, body_dl: str):
+def parse_dr_keyword(body_dr, body_dl):
     hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
 
     if hostname in search_engines:
@@ -457,13 +478,13 @@ def extract_source_keyword(is_new_session, body_dl, body_dr, traffic_source_medi
 
 ## start parsing the adContent
 
-def identify_ad_content(qr: dict):
+def identify_ad_content(qr):
     if 'utm_content' in qr:
         return qr['utm_content']
     else:
         return '(not set)'
 
-def parse_source_ad_content(url: str):
+def parse_source_ad_content(url):
     return pipe([
             parse_url,
             query_is_empty,
@@ -576,7 +597,7 @@ with_session_ids = with_session_ids.withColumn(
 
 ## start calculating hits_eCommerceAction_action_type
 
-def action_type(pa: str) -> str:
+def action_type(pa) :
     if pa == 'click':
         return 1
     elif pa == 'detail':
@@ -661,7 +682,7 @@ result = result.drop('ms_id')
 
 ## starting calculating productRevenue
 
-def product_revenue(qt: int, pr: int, action_type: int) -> int:
+def product_revenue(qt, pr, action_type) :
     if action_type == '6':
         return float(qt) * float(pr)
     else:
@@ -726,23 +747,23 @@ rename_query = """
         geo_latitude as geoNetwork_latitude,
         geo_longitude as geoNetwork_longitude,
         geo_network_location as geoNetwork_networkLocation,
-        device__client_name as device_browser,
-        device__client_version as device_browserVersion,
+        ua_detected_client_name as device_browser,
+        ua_detected_client_version as device_browserVersion,
         body_vp as device_browserSize,
-        device__os_name as device_operatingSystem,
-        device__os_version as device_operatingSystemVersion,
-        device__is_mobile as device_isMobile,
-        device__device_brand as device_mobileDeviceBranding,
-        device__device_model as device_mobileDeviceModel,
-        device__device_input as device_mobileInputSelector,
-        device__device_info as device_mobileDeviceInfo,
-        device__device_name as device_mobileDeviceMarketingName,
+        ua_detected_os_name as device_operatingSystem,
+        ua_detected_os_version as device_operatingSystemVersion,
+        ua_detected_is_mobile as device_isMobile,
+        ua_detected_device_brand as device_mobileDeviceBranding,
+        ua_detected_device_model as device_mobileDeviceModel,
+        ua_detected_device_input as device_mobileInputSelector,
+        ua_detected_device_info as device_mobileDeviceInfo,
+        ua_detected_device_name as device_mobileDeviceMarketingName,
         body_fl as device_flashVersion,
         body_je as device_javaEnabled,
         body_ul as device_language,
         body_sd as device_screenColors,
         body_sr as device_screenResolution,
-        device__device_type as device_deviceCategory,
+        ua_detected_device_type as device_deviceCategory,
         landing_page as landingPage,
         body_ec as hits_eventInfo_eventCategory,
         body_ea as hits_eventInfo_eventAction,
@@ -928,18 +949,24 @@ export_products = spark.sql("""
         and hits_type="EVENT"
         """) 
 
-export_sessions.select('*').coalesce(1).write.option('header', 'true').csv('export/sessions')
-export_hits_pageviews.select('*').coalesce(1).write.option('header', 'true').csv('export/pageviews')
-export_hits_events.select('*').coalesce(1).write.option('header', 'true').csv('export/events')
-export_products.select('*').coalesce(1).write.option('header', 'true').csv('export/products')
+sessionsDF = export_sessions.select('*')
+#pageviewsDF = export_hits_pageviews.select('*').coalesce(1)
+#hitsDF = export_hits_events.select('*').coalesce(1)
+#productsDF = export_products.select('*').coalesce(1)
 
+# load (write data)
+dynamic_frame_write_sessionsDF = DynamicFrame.fromDF(sessionsDF, glue_context, "dynamic_frame_write")
 
-##export_products\
-#    .select('*')\
-#    .where('hits_time between "2019-08-09" and "2019-08-10" and hits_type="event" and hits_eCommerceAction_action_type="6"')\
-#    .groupBy('visitId')\
-#    .agg({'totals_transactionRevenue': 'avg'})\
-#    .agg({'avg(totals_transactionRevenue)': 'sum'})\
-#    # works properly it returns 22664
+glue_context.write_dynamic_frame.from_options(
+    frame = dynamic_frame_write_sessionsDF,
+    connection_type = "s3",
+    connection_options = {
+        "path": s3_write_path
+    },
+    format = "json"
+)
 
+# Log end time
+dt_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+print("End time", dt_end)
 

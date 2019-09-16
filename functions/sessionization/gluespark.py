@@ -10,7 +10,6 @@ from pyspark.sql import SparkSession
 from pyspark.context import SparkContext
 from pyspark.sql.types import DateType, StringType, StructType, StructField
 from pyspark.sql import functions as f
-from pyspark.sql.window import Window
 from pyspark.sql import types as t
 from pyspark.sql import Row
 from pyspark.sql.window import Window
@@ -21,6 +20,9 @@ import re
 import os
 from datetime import datetime
 
+# cannot properly display umlauts
+reload(sys)
+sys.setdefaultencoding("utf-8")
 ### initialize spark session
 
 sc = SparkContext.getOrCreate()
@@ -30,17 +32,20 @@ spark = glue_context.spark_session
 ### parameters
 glue_db = "odoscope"
 glue_tbl = "xaa_jsonl"
-s3_write_path = "s3://test-ga-glue-integration/write"
+s3_bucket = "s3a://tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1"
 
 ### extract (read data)
-dt_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-print("Start time:", dt_start)
+tsfm = "%Y-%m-%d %H:%M:%S"
+time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+dt_start = datetime.strptime(time_start, tsfm) 
+print("Start time: ", dt_start)
 
-dynamic_frame_read = glue_context.create_dynamic_frame.from_catalog(database=glue_db, table_name=glue_tbl)
+#dynamic_frame_read = glue_context.create_dynamic_frame.from_catalog(database=glue_db, table_name=glue_tbl)
+df = spark.read.json("{s3_bucket}/enriched/ga/year=2019/month=09/day=11/*.jsonl".format(s3_bucket=s3_bucket))
 
 ### convert dynmaic frame to data frame to use standard pyspark functions
-df = dynamic_frame_read.toDF()
-df.printSchema()
+#df = dynamic_frame_read.toDF()
+#df.printSchema()
 
 #################### Start importing dependencies ###############
 
@@ -123,11 +128,31 @@ def filter_tmp(xs) :
 
 ################## End importing dependencies ################
 
-if not 'body_el' in df.columns:
-    df = df.withColumn('body_el', f.lit(''))
+df_columns = df.columns
 
-if not 'body_ev' in df.columns:
-    df = df.withColumn('body_ev', f.lit(''))
+required_columns = [
+        "body_el",
+        "body_ev",
+        "body_pa",
+        "body_dr",
+        "body_fl",
+        "body_cu",
+        "body_col",
+        "body_cos",
+        "body_tcc",
+        "body_ti",
+        "body_tr",
+        "body_ts",
+        "body_tt"
+        ]
+
+def add_required_colum(column, df_columns):
+    if not column in df_columns: 
+        global df
+        df = df.withColumn(column, f.lit(None))
+
+for column in required_columns:
+    add_required_colum(column, df_columns)
 
 ## start renaming the column body_t according to GA360
 def hits_type(t) :
@@ -169,7 +194,7 @@ with_columns = spark.sql(required_columns_query)
 
 query = """ 
                 select *,
-                sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
+                -- sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
                 sum(is_new_session) over (partition by body_cid order by received_at_apig) as user_session_id
                 from (
                     select *,
@@ -214,7 +239,7 @@ from
 
 with_session_ids = spark.sql(session_id_query)
 
-w = Window.partitionBy(with_session_ids.visit_id)
+w = Window.partitionBy("visit_id")
 
 with_session_ids = with_session_ids\
     .withColumn(
@@ -223,6 +248,9 @@ with_session_ids = with_session_ids\
                     f.sum(f.when((with_session_ids.body_t == 'event') & (with_session_ids.body_pa == 'purchase'), with_session_ids.body_tr).otherwise(f.lit(''))
                   ).over(w)).otherwise(f.lit('')))
 
+p = with_session_ids.rdd.getNumPartitions()
+with_session_ids.repartition(200)
+print("The size of the partition is:", p)
 import urllib
 
 ## start parsing the source
@@ -718,7 +746,7 @@ rename_query = """
         user_session_id as visitNumber,
         first_value as visitStartTime,
         date_format(ts, "yMMdd") as date,
-        body_dr as trafficSource_referralPath,
+        ifnull(body_dr, '') as trafficSource_referralPath,
         traffic_source_campaign as trafficSource_campaign,
         traffic_source_source as trafficSource_source,
         traffic_source_medium as trafficSource_medium,
@@ -747,34 +775,34 @@ rename_query = """
         geo_latitude as geoNetwork_latitude,
         geo_longitude as geoNetwork_longitude,
         geo_network_location as geoNetwork_networkLocation,
-        ua_detected_client_name as device_browser,
-        ua_detected_client_version as device_browserVersion,
+        device_client_name as device_browser,
+        device_client_version as device_browserVersion,
         body_vp as device_browserSize,
-        ua_detected_os_name as device_operatingSystem,
-        ua_detected_os_version as device_operatingSystemVersion,
-        ua_detected_is_mobile as device_isMobile,
-        ua_detected_device_brand as device_mobileDeviceBranding,
-        ua_detected_device_model as device_mobileDeviceModel,
-        ua_detected_device_input as device_mobileInputSelector,
-        ua_detected_device_info as device_mobileDeviceInfo,
-        ua_detected_device_name as device_mobileDeviceMarketingName,
-        body_fl as device_flashVersion,
+        device_os_name as device_operatingSystem,
+        device_os_version as device_operatingSystemVersion,
+        device_is_mobile as device_isMobile,
+        device_device_brand as device_mobileDeviceBranding,
+        device_device_model as device_mobileDeviceModel,
+        device_device_input as device_mobileInputSelector,
+        device_device_info as device_mobileDeviceInfo,
+        device_device_name as device_mobileDeviceMarketingName,
+        ifnull(body_fl, '') as device_flashVersion,
         body_je as device_javaEnabled,
         body_ul as device_language,
         body_sd as device_screenColors,
         body_sr as device_screenResolution,
-        ua_detected_device_type as device_deviceCategory,
+        device_device_type as device_deviceCategory,
         landing_page as landingPage,
         body_ec as hits_eventInfo_eventCategory,
         body_ea as hits_eventInfo_eventAction,
-        body_el as hits_eventInfo_eventLabel,
-        body_ev as hits_eventInfo_eventValue,
+        ifnull(body_el, '') as hits_eventInfo_eventLabel,
+        ifnull(body_ev, '') as hits_eventInfo_eventValue,
         event_sequence as hits_hitNumber,
         ts as hits_time, -- needs to be calculated from the session start
         hour(ts) as hits_hour,
         minute(ts) as hits_minute,
         '' as hits_isSecure, -- depricated can be removed
-        body_ni as hits_isInteractive,
+        ifnull(body_ni, '') as hits_isInteractive,
         '' as hits_referer,
         page_path as hits_page_pagePath,
         hostname as hits_page_hostname,
@@ -785,23 +813,23 @@ rename_query = """
         page_path_level_two as hits_page_pagePathLevel2,
         page_path_level_three as hits_page_pagePathLevel3,
         page_path_level_four as hits_page_pagePathLevel4,
-        body_ti as hits_item_transactionId,
+        ifnull(body_ti, '') as hits_item_transactionId,
         -- hits_item_productName,
         -- hits_item_productCategory,
         -- hits_item_productSku,
         -- hits_item_itemQuantity,
         -- hits_item_itemRevenue,
-        body_cu as hits_item_currencyCode,
+        ifnull(body_cu, '') as hits_item_currencyCode,
         '' as hits_item_localItemRevenue,
-        body_col as hits_eCommerceAction_option,
-        body_cos as hits_eCommerceAction_step,
+        ifnull(body_col, '') as hits_eCommerceAction_option,
+        ifnull(body_cos, '') as hits_eCommerceAction_step,
         action_type as hits_eCommerceAction_action_type,
-        body_tcc as hits_transation_transactionCoupon,
-        body_ti as hits_transaction_transactionId,
-        body_tr as hits_transaction_transactionRevenue,
+        ifnull(body_tcc, '') as hits_transation_transactionCoupon,
+        ifnull(body_ti, '') as hits_transaction_transactionId,
+        ifnull(body_tr, '') as hits_transaction_transactionRevenue,
         total_revenue_per_session as totals_transactionRevenue,
-        body_ts as hits_transaction_transactionShipping,
-        body_tt as hits_transaction_transactionTax,
+        ifnull(body_ts, '') as hits_transaction_transactionShipping,
+        ifnull(body_tt, '') as hits_transaction_transactionTax,
         hits_type,
         prca as hits_product_v2ProductCategory,
         -- prcc -> Product Coupon Code, fields needs to reconsidered
@@ -950,23 +978,48 @@ export_products = spark.sql("""
         """) 
 
 sessionsDF = export_sessions.select('*')
-#pageviewsDF = export_hits_pageviews.select('*').coalesce(1)
-#hitsDF = export_hits_events.select('*').coalesce(1)
-#productsDF = export_products.select('*').coalesce(1)
+pageviewsDF = export_hits_pageviews.select('*')
+eventsDF = export_hits_events.select('*')
+productsDF = export_products.select('*')
+
+sessionsDF.coalesce(1)\
+    .write.format("csv")\
+    .option("header", "true")\
+    .mode("Overwrite")\
+    .save("{s3_bucket}/write/sessions/".format(s3_bucket=s3_bucket))
+
+pageviewsDF.coalesce(1)\
+    .write.format("csv")\
+    .option("header", "true")\
+    .mode("Overwrite")\
+    .save("{s3_bucket}/write/pageviews/".format(s3_bucket=s3_bucket))
+
+eventsDF.coalesce(1)\
+    .write.format("csv")\
+    .option("header", "true")\
+    .mode("Overwrite")\
+    .save("{s3_bucket}/write/events/".format(s3_bucket=s3_bucket))
+
+productsDF.coalesce(1)\
+    .write.format("csv")\
+    .option("header", "true")\
+    .mode("Overwrite")\
+    .save("{s3_bucket}/write/products/".format(s3_bucket=s3_bucket))
 
 # load (write data)
-dynamic_frame_write_sessionsDF = DynamicFrame.fromDF(sessionsDF, glue_context, "dynamic_frame_write")
+#dynamic_frame_write_sessionsDF = DynamicFrame.fromDF(sessionsDF, glue_context, "dynamic_frame_write")
 
-glue_context.write_dynamic_frame.from_options(
-    frame = dynamic_frame_write_sessionsDF,
-    connection_type = "s3",
-    connection_options = {
-        "path": s3_write_path
-    },
-    format = "json"
-)
+#glue_context.write_dynamic_frame.from_options(
+#    frame = dynamic_frame_write_sessionsDF,
+#    connection_type = "s3",
+#    connection_options = {
+#        "path": s3_write_path
+#    },
+#    format = "csv"
+#)
 
 # Log end time
-dt_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-print("End time", dt_end)
-
+time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+dt_end = datetime.strptime(time_end, tsfm) 
+print("End time: ", dt_end)
+print("Running time: ", (dt_end - dt_start).seconds, " seconds")

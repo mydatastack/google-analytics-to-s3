@@ -14,19 +14,20 @@ spark = SparkSession\
     .appName("Python Spark SQL basic example")\
     .getOrCreate()
 
-spark.sparkContext.setLogLevel('ERROR')
+#spark.sparkContext.setLogLevel('ERROR')
 spark.conf.set('spark.driver.memory', '6g')
 spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
-df = spark.read.json('./jsonsplitted/xaa.jsonl')
+df = spark.read.json('./non-ecommerce/*.jsonl')
+print("The number of partitions after read:", df.rdd.getNumPartitions())
 
-
+from datetime import datetime
+tsfm = "%Y-%m-%d %H:%M:%S"
+time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+dt_start = datetime.strptime(time_start, tsfm) 
+print("Start time: ", dt_start)
 #################### Start importing dependencies ###############
 
-required_columns = [
-        'body_el',
-        'body_ev'
-        ]
 columns_to_drop = [
         'body__cbt',
         'body__cst',
@@ -102,11 +103,31 @@ def filter_tmp(xs: list) -> list:
 
 ################## End importing dependencies ################
 
-if not 'body_el' in df.columns:
-    df = df.withColumn('body_el', f.lit(''))
+df_columns = df.columns
 
-if not 'body_ev' in df.columns:
-    df = df.withColumn('body_ev', f.lit(''))
+required_columns = [
+        "body_el",
+        "body_ev",
+        "body_pa",
+        "body_dr",
+        "body_fl",
+        "body_cu",
+        "body_col",
+        "body_cos",
+        "body_tcc",
+        "body_ti",
+        "body_tr",
+        "body_ts",
+        "body_tt"
+        ]
+
+def add_required_colum(column, df_columns):
+    if not column in df_columns: 
+        global df
+        df = df.withColumn(column, f.lit(None))
+
+for column in required_columns:
+    add_required_colum(column, df_columns)
 
 ## start renaming the column body_t according to GA360
 def hits_type(t: str) -> str:
@@ -139,8 +160,9 @@ df = df.withColumn(
 ## end renaming the column 
 
 df_clean = df.drop(*columns_to_drop)
+reparitioned_df_clean = df_clean
 
-df_clean.createOrReplaceTempView('clicks')
+reparitioned_df_clean.createOrReplaceTempView('clicks')
 
 required_columns_query = 'select *, null as body_el, null as body_ev from clicks'
 
@@ -148,7 +170,7 @@ with_columns = spark.sql(required_columns_query)
 
 query = """ 
                 select *,
-                sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
+                null as global_session_id, -- sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
                 sum(is_new_session) over (partition by body_cid order by received_at_apig) as user_session_id
                 from (
                     select *,
@@ -170,7 +192,6 @@ query = """
 sessions = spark.sql(query)
 # 569123 count(body_cid) 
 
-
 # filter out adtiming and timing events
 sessions_clean = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
 sessions_clean.createOrReplaceTempView('sessions')
@@ -191,15 +212,22 @@ from
           ) a
 """
 
+from pyspark.sql.functions import spark_partition_id
+
+def show_partition_id(df):
+    return df.select("visit_id", spark_partition_id().alias("partition_id")).show(1000, False)
+
 with_session_ids = spark.sql(session_id_query)
+partitioned = with_session_ids
+#show_partition_id(with_session_ids)
+#show_partition_id(partitioned)
+w = Window.partitionBy(f.col("visit_id"))
 
-w = Window.partitionBy(with_session_ids.visit_id)
-
-with_session_ids = with_session_ids\
+with_session_ids = partitioned\
     .withColumn(
             'total_revenue_per_session',
-            f.when(with_session_ids.is_new_session == '1', 
-                    f.sum(f.when((with_session_ids.body_t == 'event') & (with_session_ids.body_pa == 'purchase'), with_session_ids.body_tr).otherwise(f.lit(''))
+            f.when(f.col("is_new_session") == '1', 
+                    f.sum(f.when((f.col("body_t") == 'event') & (f.col("body_pa") == 'purchase'), f.col("body_tr")).otherwise(f.lit(''))
                   ).over(w)).otherwise(f.lit('')))
 
 import urllib
@@ -697,7 +725,7 @@ rename_query = """
         user_session_id as visitNumber,
         first_value as visitStartTime,
         date_format(ts, "yMMdd") as date,
-        body_dr as trafficSource_referralPath,
+        ifnull(body_dr, '') as trafficSource_referralPath,
         traffic_source_campaign as trafficSource_campaign,
         traffic_source_source as trafficSource_source,
         traffic_source_medium as trafficSource_medium,
@@ -726,34 +754,34 @@ rename_query = """
         geo_latitude as geoNetwork_latitude,
         geo_longitude as geoNetwork_longitude,
         geo_network_location as geoNetwork_networkLocation,
-        device__client_name as device_browser,
-        device__client_version as device_browserVersion,
+        device_client_name as device_browser,
+        device_client_version as device_browserVersion,
         body_vp as device_browserSize,
-        device__os_name as device_operatingSystem,
-        device__os_version as device_operatingSystemVersion,
-        device__is_mobile as device_isMobile,
-        device__device_brand as device_mobileDeviceBranding,
-        device__device_model as device_mobileDeviceModel,
-        device__device_input as device_mobileInputSelector,
-        device__device_info as device_mobileDeviceInfo,
-        device__device_name as device_mobileDeviceMarketingName,
-        body_fl as device_flashVersion,
+        device_os_name as device_operatingSystem,
+        device_os_version as device_operatingSystemVersion,
+        device_is_mobile as device_isMobile,
+        device_device_brand as device_mobileDeviceBranding,
+        device_device_model as device_mobileDeviceModel,
+        device_device_input as device_mobileInputSelector,
+        device_device_info as device_mobileDeviceInfo,
+        device_device_name as device_mobileDeviceMarketingName,
+        ifnull(body_fl, '') as device_flashVersion,
         body_je as device_javaEnabled,
         body_ul as device_language,
         body_sd as device_screenColors,
         body_sr as device_screenResolution,
-        device__device_type as device_deviceCategory,
+        device_device_type as device_deviceCategory,
         landing_page as landingPage,
         body_ec as hits_eventInfo_eventCategory,
         body_ea as hits_eventInfo_eventAction,
-        body_el as hits_eventInfo_eventLabel,
-        body_ev as hits_eventInfo_eventValue,
+        ifnull(body_el, '') as hits_eventInfo_eventLabel,
+        ifnull(body_ev, '') as hits_eventInfo_eventValue,
         event_sequence as hits_hitNumber,
         ts as hits_time, -- needs to be calculated from the session start
         hour(ts) as hits_hour,
         minute(ts) as hits_minute,
         '' as hits_isSecure, -- depricated can be removed
-        body_ni as hits_isInteractive,
+        ifnull(body_ni, '') as hits_isInteractive,
         '' as hits_referer,
         page_path as hits_page_pagePath,
         hostname as hits_page_hostname,
@@ -764,23 +792,23 @@ rename_query = """
         page_path_level_two as hits_page_pagePathLevel2,
         page_path_level_three as hits_page_pagePathLevel3,
         page_path_level_four as hits_page_pagePathLevel4,
-        body_ti as hits_item_transactionId,
+        ifnull(body_ti, '') as hits_item_transactionId,
         -- hits_item_productName,
         -- hits_item_productCategory,
         -- hits_item_productSku,
         -- hits_item_itemQuantity,
         -- hits_item_itemRevenue,
-        body_cu as hits_item_currencyCode,
+        ifnull(body_cu, '') as hits_item_currencyCode,
         '' as hits_item_localItemRevenue,
-        body_col as hits_eCommerceAction_option,
-        body_cos as hits_eCommerceAction_step,
+        ifnull(body_col, '') as hits_eCommerceAction_option,
+        ifnull(body_cos, '') as hits_eCommerceAction_step,
         action_type as hits_eCommerceAction_action_type,
-        body_tcc as hits_transation_transactionCoupon,
-        body_ti as hits_transaction_transactionId,
-        body_tr as hits_transaction_transactionRevenue,
+        ifnull(body_tcc, '') as hits_transation_transactionCoupon,
+        ifnull(body_ti, '') as hits_transaction_transactionId,
+        ifnull(body_tr, '') as hits_transaction_transactionRevenue,
         total_revenue_per_session as totals_transactionRevenue,
-        body_ts as hits_transaction_transactionShipping,
-        body_tt as hits_transaction_transactionTax,
+        ifnull(body_ts, '') as hits_transaction_transactionShipping,
+        ifnull(body_tt, '') as hits_transaction_transactionTax,
         hits_type,
         prca as hits_product_v2ProductCategory,
         -- prcc -> Product Coupon Code, fields needs to reconsidered
@@ -928,18 +956,42 @@ export_products = spark.sql("""
         and hits_type="EVENT"
         """) 
 
-export_sessions.select('*').coalesce(1).write.option('header', 'true').csv('export/sessions')
-export_hits_pageviews.select('*').coalesce(1).write.option('header', 'true').csv('export/pageviews')
-export_hits_events.select('*').coalesce(1).write.option('header', 'true').csv('export/events')
-export_products.select('*').coalesce(1).write.option('header', 'true').csv('export/products')
+#export_sessions.select("*").show(10)
+#export_hits_pageviews.select('*').show(10)
+#export_hits_events.select('*').show(10)
+#export_sessions.printSchema()
+export_sessions.select('*')\
+    .coalesce(1)\
+    .write\
+    .option('header', 'true')\
+    .mode("Overwrite")\
+    .csv('export/sessions')
+
+export_hits_pageviews.select('*')\
+    .coalesce(1)\
+    .write\
+    .option('header', 'true')\
+    .mode("Overwrite")\
+    .csv('export/pageviews')
+
+export_hits_events.select('*')\
+    .coalesce(1)\
+    .write\
+    .option('header', 'true')\
+    .mode("Overwrite")\
+    .csv('export/events')
+
+export_products.select('*')\
+    .coalesce(1)\
+    .write\
+    .option('header', 'true')\
+    .mode("Overwrite")\
+    .csv('export/products')
 
 
-##export_products\
-#    .select('*')\
-#    .where('hits_time between "2019-08-09" and "2019-08-10" and hits_type="event" and hits_eCommerceAction_action_type="6"')\
-#    .groupBy('visitId')\
-#    .agg({'totals_transactionRevenue': 'avg'})\
-#    .agg({'avg(totals_transactionRevenue)': 'sum'})\
-#    # works properly it returns 22664
+time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+dt_end = datetime.strptime(time_end, tsfm) 
+print("End time: ", dt_end)
+print("Running time: ", (dt_end - dt_start).seconds, " seconds")
 
 

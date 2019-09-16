@@ -335,6 +335,57 @@ Resources:
           Ref: S3AlarmPeriod
         BucketEventsTopic:
           Ref: BucketEventsTopic
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "glue.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "root"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - Fn::GetAtt: [ DataBucket , Arn ]
+                  - Fn::Join:
+                    - ""
+                    - - Fn::GetAtt: [ DataBucket , Arn ]
+                      - "/*"
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      MaxCapacity: 2
+      Command:
+        Name: glueetl
+        ScriptLocation: ../functions/sessionization/gluespark.py
+      ExecutionProperty:
+        MaxConcurrentRuns: 2
+      MaxRetries: 0
+      Name: cf-gaglue-job
+      Role:
+        Ref: GlueJobRole
+
 Outputs:
   CollectorEndpoint:
     Description: URL of the endpoint that should be used with Google Analytics Duplicator 

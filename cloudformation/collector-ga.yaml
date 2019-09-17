@@ -391,6 +391,9 @@ Resources:
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
+      DefaultArguments:
+        "--s3bucket": 
+          Ref: DataBucket
       MaxCapacity: 2
       Command:
         Name: glueetl
@@ -402,6 +405,18 @@ Resources:
       Role:
         Ref: GlueJobRole
         #Tags: '[{"Key": "Activity", "Value": "GAGlueJob"}]'
+
+  GlueTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Type: "SCHEDULED" 
+      Description: A trigger that triggers a Glue job every night at 2am
+      Schedule: cron(0 3 * * ? *)
+      Actions:
+        -
+          JobName:
+            Ref: GlueJob
+
 
 Outputs:
   CollectorEndpoint:

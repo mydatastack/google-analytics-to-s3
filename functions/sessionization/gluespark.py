@@ -18,7 +18,31 @@ from pyspark.sql.window import Window
 import sys
 import re
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
+
+# parse args provided via glue trigger
+args = getResolvedOptions(sys.argv, ["s3bucket"])
+s3_bucket = "s3a://" + args["s3bucket"]
+
+# define read folder path 
+root_read_folder = "/enriched/ga/"
+root_write_folder = "/aggregated/ga/"
+
+def build_folder(bucket, root, year, month, day):
+    return bucket + root + "/year=" + year + "/month=" + month + "/day=" + day 
+
+yesterday = (datetime.now() - timedelta(1))
+yesterday_day = yesterday.strftime("%d")
+yesterday_month = yesterday.strftime("%m")
+yesterday_year = yesterday.strftime("%Y")
+
+today = date.today()
+today_day = today.strftime("%d")
+today_month = today.strftime("%m")
+today_year = today.strftime("%Y")
+
+read_folder_path = build_folder(s3_bucket, root_read_folder, yesterday_year, yesterday_month, yesterday_day) 
+write_folder_path = build_folder(s3_bucket, root_write_folder, yesterday_year, yesterday_month, yesterday_day)
 
 # cannot properly display umlauts
 reload(sys)
@@ -29,10 +53,6 @@ sc = SparkContext.getOrCreate()
 glue_context = GlueContext(sc)
 spark = glue_context.spark_session
 
-### parameters
-glue_db = "odoscope"
-glue_tbl = "xaa_jsonl"
-s3_bucket = "s3a://tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1"
 
 ### extract (read data)
 tsfm = "%Y-%m-%d %H:%M:%S"
@@ -40,15 +60,10 @@ time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 dt_start = datetime.strptime(time_start, tsfm) 
 print("Start time: ", dt_start)
 
-#dynamic_frame_read = glue_context.create_dynamic_frame.from_catalog(database=glue_db, table_name=glue_tbl)
-#df = spark.read.json("{s3_bucket}/enriched/ga/year=2019/month=09/day=11/*.jsonl".format(s3_bucket=s3_bucket))
 df = spark.read.format("json").option("mode", "FAILFAST")\
         .option("inferSchema", "true")\
-        .load("{s3_bucket}/enriched/ga/year=2019/month=09/day=11/*.jsonl".format(s3_bucket=s3_bucket))
+        .load(read_folder_path + "/*.jsonl")
 
-### convert dynmaic frame to data frame to use standard pyspark functions
-#df = dynamic_frame_read.toDF()
-#df.printSchema()
 
 #################### Start importing dependencies ###############
 
@@ -980,46 +995,30 @@ export_products = spark.sql("""
         and hits_type="EVENT"
         """) 
 
-sessionsDF = export_sessions.select('*')
-pageviewsDF = export_hits_pageviews.select('*')
-eventsDF = export_hits_events.select('*')
-productsDF = export_products.select('*')
-
-sessionsDF.coalesce(1)\
+export_sessions.select('*').coalesce(1)\
     .write.format("csv")\
     .option("header", "true")\
     .mode("Overwrite")\
-    .save("{s3_bucket}/write/sessions/".format(s3_bucket=s3_bucket))
+    .save(write_folder_path + "/sessions/")
 
-pageviewsDF.coalesce(1)\
+export_hits_pageviews.select('*').coalesce(1)\
     .write.format("csv")\
     .option("header", "true")\
     .mode("Overwrite")\
-    .save("{s3_bucket}/write/pageviews/".format(s3_bucket=s3_bucket))
+    .save(write_folder_path + "/pageviews/")
 
-eventsDF.coalesce(1)\
+export_hits_events.select('*').coalesce(1)\
     .write.format("csv")\
     .option("header", "true")\
     .mode("Overwrite")\
-    .save("{s3_bucket}/write/events/".format(s3_bucket=s3_bucket))
+    .save(write_folder_path + "/events/")
 
-productsDF.coalesce(1)\
+export_products.select('*').coalesce(1)\
     .write.format("csv")\
     .option("header", "true")\
     .mode("Overwrite")\
-    .save("{s3_bucket}/write/products/".format(s3_bucket=s3_bucket))
+    .save(write_folder_path + "/products/")
 
-# load (write data)
-#dynamic_frame_write_sessionsDF = DynamicFrame.fromDF(sessionsDF, glue_context, "dynamic_frame_write")
-
-#glue_context.write_dynamic_frame.from_options(
-#    frame = dynamic_frame_write_sessionsDF,
-#    connection_type = "s3",
-#    connection_options = {
-#        "path": s3_write_path
-#    },
-#    format = "csv"
-#)
 
 # Log end time
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 

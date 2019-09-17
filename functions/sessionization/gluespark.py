@@ -41,7 +41,10 @@ dt_start = datetime.strptime(time_start, tsfm)
 print("Start time: ", dt_start)
 
 #dynamic_frame_read = glue_context.create_dynamic_frame.from_catalog(database=glue_db, table_name=glue_tbl)
-df = spark.read.json("{s3_bucket}/enriched/ga/year=2019/month=09/day=11/*.jsonl".format(s3_bucket=s3_bucket))
+#df = spark.read.json("{s3_bucket}/enriched/ga/year=2019/month=09/day=11/*.jsonl".format(s3_bucket=s3_bucket))
+df = spark.read.format("json").option("mode", "FAILFAST")\
+        .option("inferSchema", "true")\
+        .load("{s3_bucket}/enriched/ga/year=2019/month=09/day=11/*.jsonl".format(s3_bucket=s3_bucket))
 
 ### convert dynmaic frame to data frame to use standard pyspark functions
 #df = dynamic_frame_read.toDF()

@@ -411,7 +411,7 @@ Resources:
     Properties:
       Type: "SCHEDULED" 
       Description: A trigger that triggers a Glue job every night at 2am
-      Schedule: cron(0 3 * * ? *)
+      Schedule: cron(0 2 * * ? *)
       Actions:
         -
           JobName:
@@ -444,11 +444,23 @@ Resources:
       Runtime: python3.7
       MemorySize: 128
       Timeout: 600
+      Environment:
+        Variables:
+          UPLOAD_STATE_TABLE:
+            Ref: UploadStatusTable
       ReservedConcurrentExecutions: 5 # remove when the function is safe
       Handler: main.handler
       CodeUri: ../functions/sftp-uploader/
       Layers:
         - Ref: SFTPLayer 
+      Events:
+        ScheduleUpload:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 3 * * ? *)
+            Name: my-upload-function
+            Description: runs a function every day at 3am 
+            Enabled: True
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -478,6 +490,32 @@ Resources:
                 - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_key_password"
                 - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_ssh_key"
                 - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_username"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - "dynamodb:PutItem"
+              Resource:
+                - Fn::GetAtt: [UploadStatusTable, Arn]
+
+  UploadStatusTable:
+    Type: AWS::DynamoDB::Table
+    Description: Keeps information about sucessfully uploaded files
+    Properties:
+      TableName:
+        Fn::Sub: ${Name}-upload-status-${Stage}
+      AttributeDefinitions:
+        - AttributeName: year
+          AttributeType: S
+        - AttributeName: uploaded_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: year
+          KeyType: HASH
+        - AttributeName: uploaded_at
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
 Outputs:
   CollectorEndpoint:
     Description: URL of the endpoint that should be used with Google Analytics Duplicator 

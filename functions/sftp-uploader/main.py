@@ -12,6 +12,7 @@ pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 s3 = boto3.resource("s3")
 s3_client = boto3.client("s3")
 ssm = boto3.client("ssm")
+dynamodb = boto3.resource("dynamodb")
 
 key_password = ssm.get_parameter(Name="odoscope_key_password")["Parameter"]["Value"]
 key_username = ssm.get_parameter(Name="odoscope_username")["Parameter"]["Value"]
@@ -23,6 +24,7 @@ yesterday_year = yesterday.strftime("%Y")
 yesterday_month = yesterday.strftime("%m")
 yesterday_day = yesterday.strftime("%d")
 
+
 file_date = yesterday_year + yesterday_month + yesterday_day
 
 def get_bucket_url():
@@ -30,6 +32,12 @@ def get_bucket_url():
         return os.environ["S3_BUCKET"]
     except KeyError:
         return "tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1"
+
+def get_table_name():
+    try:
+        return os.environ["UPLOAD_STATE_TABLE"]
+    except KeyError:
+        return "upload_state"
 
 S3_BUCKET = get_bucket_url()
 date_folder = "/year=" + yesterday_year + "/month=" + yesterday_month + "/day=" + yesterday_day + "/"
@@ -78,6 +86,32 @@ def sftp_upload(ssh) -> ():
     else:
         return "success"
 
+def construct_params(yy, ym, yd, *args):
+    now = datetime.now()
+    current_year = now.year
+    iso_timestamp = now.isoformat()
+    compressed_files = filter_files(list_bucket_content(S3_BUCKET))
+    return ("success", {
+               "year": str(current_year),
+               "uploaded_at": str(iso_timestamp),
+               "compressed_files": compressed_files, 
+               "uploaded_file_name": f"{yy}{ym}{yd}.zip",
+               "status": "success"
+                })
+
+def db_state_update(table_name, params):
+    if params[0] == "success":
+        table = dynamodb.Table(table_name)
+        table.put_item(
+                Item = params[1],
+                ReturnValues = "NONE"
+
+                )
+        return "success"
+    else:
+        return "error"
+
+
 def handler(event: dict, ctx: dict) -> ():
     return pipe([
         list_bucket_content,
@@ -87,18 +121,26 @@ def handler(event: dict, ctx: dict) -> ():
         partial(get_ssh_key, key_password, key_ssh),
         sftp_connect,
         sftp_upload,
+        partial(construct_params, yesterday_year, yesterday_month, yesterday_day), 
+        partial(db_state_update, get_table_name()),
     ]) (S3_BUCKET)
 
 if __name__ == '__main__':
     import unittest
 
     class TestHandler(unittest.TestCase):
+        @unittest.skip("testing db")
         def test_run_handler(self):
             self.assertEqual(handler(None, None), "success")
 
+        @unittest.skip("testing db")
         def test_filter_files(self):
             url = f"aggregated/ga{date_folder}events/part-00000-3418d3cf-68e9-486f-ae13-f60d3d44ed94-c000.csv"
             self.assertEqual(filter_files([url]), [url])
+
+        def test_db_state_update(self):
+            params = construct_params(yesterday_year, yesterday_month, yesterday_day) 
+            self.assertEqual(db_state_update(get_table_name(), params), "success")
 
     unittest.main()
 

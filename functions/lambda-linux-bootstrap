@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Source: https://www.freecodecamp.org/news/escaping-lambda-function-hell-using-docker-40b187ec1e48/
+# $1 should be the absolute path to the directory you want to mount
+docker run -v $1:/working -it --rm ubuntu
+echo "Running update"
+apt update
+echo "Installing properties"
+apt install software-properties-common
+echo "Deadsnakes PPA"
+add-apt-repository ppa:deadsnakes/ppa
+echo "Installing Python3.7"
+apt install python3.7
+echo "Version check"
+python3.7 --version
+echo "Change directory to the mounted directory"
+cd /working
+echo "Making folder for the layer"
+mkdir -p ./python/lib/python3.7/site-packages/
+echo "Changing to the folder for the install"
+cd ./python/lib/python3.7/site-packages/ 
+# $2 should be the pip package you want to install
+python3.7 -m pip install -t ./ $2 

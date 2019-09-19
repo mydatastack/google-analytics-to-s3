@@ -4,8 +4,6 @@ import shutil
 from datetime import date, datetime, timedelta
 import boto3
 import re
-import pysftp
-from os.path import expanduser
 import io
 from functools import reduce, partial
 
@@ -18,6 +16,7 @@ ssm = boto3.client("ssm")
 key_password = ssm.get_parameter(Name="odoscope_key_password")["Parameter"]["Value"]
 key_username = ssm.get_parameter(Name="odoscope_username")["Parameter"]["Value"]
 key_hostname = ssm.get_parameter(Name="odoscope_host")["Parameter"]["Value"]
+key_ssh = ssm.get_parameter(Name="odoscope_ssh_key", WithDecryption=True)["Parameter"]["Value"]
 
 yesterday = (datetime.now() - timedelta(1))
 yesterday_year = yesterday.strftime("%Y")
@@ -47,12 +46,9 @@ def tmp_download(keys: list) -> ():
 def zip_tmp(y_year, y_month, y_day, *args) -> ():
     shutil.make_archive("/tmp/" + y_year + y_month + y_day, "zip", "/tmp")
 
-def get_ssh_key(key_password: str, *args):
+def get_ssh_key(key_password: str, key_ssh: str, *args):
     try:
-        f = open(os.path.join(expanduser('~'), ".ssh", "odoscope-new.key"), "r")
-        s = f.read()
-        f.close()
-        keyfile = io.StringIO(s)
+        keyfile = io.StringIO(key_ssh)
         mykey = paramiko.RSAKey.from_private_key(keyfile, password= key_password)
     except Exception as e:
         print(e)
@@ -88,7 +84,7 @@ def handler(event: dict, ctx: dict) -> ():
         filter_files,
         tmp_download,
         partial(zip_tmp, yesterday_year, yesterday_month, yesterday_day),
-        partial(get_ssh_key, key_password),
+        partial(get_ssh_key, key_password, key_ssh),
         sftp_connect,
         sftp_upload,
     ]) (S3_BUCKET)

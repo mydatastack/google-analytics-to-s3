@@ -417,7 +417,67 @@ Resources:
           JobName:
             Ref: GlueJob
 
+  SFTPLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: paramiko
+      Description: paramkio lib for sftp connect
+      ContentUri: ../functions/lambda-layers/paramiko/
+      CompatibleRuntimes:
+        - python3.7
+      LicenseInfo: MIT should be added here 
+      RetentionPolicy: Retain
 
+  SFTPLayerPermission:
+    Type: AWS::Lambda::LayerVersionPermission
+    DeletionPolicy: Retain
+    Properties:
+      Action: lambda:GetLayerVersion
+      LayerVersionArn:
+        Ref: SFTPLayer
+      Principal:
+        Ref: AWS::AccountId
+
+  SFTPFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 600
+      ReservedConcurrentExecutions: 5 # remove when the function is safe
+      Handler: main.handler
+      CodeUri: ../functions/sftp-uploader/
+      Layers:
+        - Ref: SFTPLayer 
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:AbortMultipartUpload
+                - s3:GetBucketLocation
+                - s3:GetObject
+                - s3:ListBucket
+                - s3:ListBucketMultipartUploads
+                - s3:PutObject
+              Resource:
+                - Fn::GetAtt: [ DataBucket , Arn ]
+                - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt: [ DataBucket , Arn ]
+                    - "/*"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - "ssm:GetParameter"
+                - "ssm:GetParameters"
+                - "ssm:GetParametersByPath"
+              Resource:
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_host"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_key_password"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_ssh_key"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_username"
 Outputs:
   CollectorEndpoint:
     Description: URL of the endpoint that should be used with Google Analytics Duplicator 

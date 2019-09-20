@@ -1,0 +1,7 @@
+#!/bin/bash
+#Author: Dimitri Tarasowski
+#Comments: run it to mount a directory to a linux container
+
+# Source: https://www.freecodecamp.org/news/escaping-lambda-function-hell-using-docker-40b187ec1e48/
+# $1 should be the absolute path to the directory you want to mount
+docker run -v $1:/working -it --rm ubuntu

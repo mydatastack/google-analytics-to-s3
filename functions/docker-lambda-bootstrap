@@ -1,0 +1,22 @@
+#!/bin/bash
+# Author: Dimitri Tarasowski
+# Comments: run it inside the container. Bootstrapping of python3.7.
+
+echo "Running update"
+apt update
+echo "Installing properties"
+apt install software-properties-common
+echo "Deadsnakes PPA"
+add-apt-repository ppa:deadsnakes/ppa
+echo "Installing Python3.7"
+apt install python3.7
+echo "Version check"
+python3.7 --version
+echo "Change directory to the mounted directory"
+cd /working
+echo "Making folder for the layer"
+mkdir -p ./python/lib/python3.7/site-packages/
+echo "Changing to the folder for the install"
+cd ./python/lib/python3.7/site-packages/ 
+# $2 should be the pip package you want to install
+python3.7 -m pip install -t ./ $1 

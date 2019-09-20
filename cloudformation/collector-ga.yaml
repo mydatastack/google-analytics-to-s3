@@ -106,11 +106,11 @@ Resources:
             Action:
               - lambda:InvokeFunction
             Resource:
-              Fn::GetAtt: [FirehoseProcessorFunction, Arn]
+              Fn::GetAtt: [FirehoseTransformationFunction, Arn]
       Roles:
         - Ref: KinesisFirehoseRole
 
-  FirehoseProcessorFunction:
+  FirehoseTransformationFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7 
@@ -118,9 +118,9 @@ Resources:
       Timeout: 60
       ReservedConcurrentExecutions: 5 # remove when the function is safe
       Handler: main.handler 
-      CodeUri: ../functions/frh-processor-py/
+      CodeUri: ../functions/transformation/
 
-  PartitionerFunction:
+  EnrichmentFunction:
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7
@@ -128,7 +128,7 @@ Resources:
       Timeout: 60
       ReservedConcurrentExecutions: 5 # remove when the function is safe
       Handler: main.handler
-      CodeUri: ../functions/ga-partitioner/
+      CodeUri: ../functions/enrichment/
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -147,16 +147,16 @@ Resources:
                   - - Fn::GetAtt: [ DataBucket , Arn ]
                     - "/*"
 
-  PartitionerFunctionSubscription:
+  EnrichmentFunctionSubscription:
     Type: AWS::SNS::Subscription
     Properties:
       Endpoint:
-        Fn::GetAtt: [PartitionerFunction, Arn]
+        Fn::GetAtt: [EnrichmentFunction, Arn]
       TopicArn:
         Ref: BucketEventsTopic
       Protocol: lambda
 
-  PartitionerInvokePermissions:
+  EnrichmentFunctionInvokePermissions:
     Type: AWS::Lambda::Permission
     Properties:
       Action: 'lambda:InvokeFunction'
@@ -164,7 +164,7 @@ Resources:
       SourceArn: 
         Ref: BucketEventsTopic
       FunctionName:
-        Fn::GetAtt: [PartitionerFunction, Arn]
+        Fn::GetAtt: [EnrichmentFunction, Arn]
 
   EventFirehose:
     Type: AWS::KinesisFirehose::DeliveryStream
@@ -176,7 +176,7 @@ Resources:
           IntervalInSeconds: 60
           SizeInMBs: 10
         CompressionFormat: UNCOMPRESSED
-        Prefix: "raw/ga/year=!{timestamp:YYYY}/month=!{timestamp:MM}/day=!{timestamp:dd}/hour=!{timestamp:HH}/"
+        Prefix: "raw/ga/year=!{timestamp:YYYY}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
         ErrorOutputPrefix: "errors/!{firehose:random-string}/!{firehose:error-output-type}/!{timestamp:yyyy/MM/dd}/"
         RoleARN:
           Fn::GetAtt: [ KinesisFirehoseRole, Arn ]
@@ -186,7 +186,7 @@ Resources:
             - Parameters:
               - ParameterName: LambdaArn
                 ParameterValue: 
-                  Fn::GetAtt: [FirehoseProcessorFunction, Arn]
+                  Fn::GetAtt: [FirehoseTransformationFunction, Arn]
               Type: Lambda
 
   ApiGatewayRestApi:
@@ -335,6 +335,187 @@ Resources:
           Ref: S3AlarmPeriod
         BucketEventsTopic:
           Ref: BucketEventsTopic
+
+  GlueJobRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              Service:
+                - "glue.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+          PolicyName: "databucket"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:"*"
+                Resource:
+                  - Fn::GetAtt: [ DataBucket , Arn ]
+                  - Fn::Join:
+                    - ""
+                    - - Fn::GetAtt: [ DataBucket , Arn ]
+                      - "/*"
+        -
+          PolicyName: "cf-script-template"
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                Resource: "*" # ! need to give least privilege permission, change from * to exact resource arn 
+
+  GlueJob:
+    Type: AWS::Glue::Job
+    Properties:
+      DefaultArguments:
+        "--s3bucket": 
+          Ref: DataBucket
+      MaxCapacity: 2
+      Command:
+        Name: glueetl
+        ScriptLocation: ../functions/sessionization/gluespark.py
+      ExecutionProperty:
+        MaxConcurrentRuns: 2
+      MaxRetries: 0
+      Name: cf-gaglue-job
+      Role:
+        Ref: GlueJobRole
+        #Tags: '[{"Key": "Activity", "Value": "GAGlueJob"}]'
+
+  GlueTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Type: "SCHEDULED" 
+      Description: A trigger that triggers a Glue job every night at 2am
+      Schedule: cron(0 2 * * ? *)
+      Actions:
+        -
+          JobName:
+            Ref: GlueJob
+
+  SFTPLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: paramiko
+      Description: paramkio lib for sftp connect
+      ContentUri: ../functions/lambda-layers/paramiko/
+      CompatibleRuntimes:
+        - python3.7
+      LicenseInfo: MIT should be added here 
+      RetentionPolicy: Retain
+
+  SFTPLayerPermission:
+    Type: AWS::Lambda::LayerVersionPermission
+    DeletionPolicy: Retain
+    Properties:
+      Action: lambda:GetLayerVersion
+      LayerVersionArn:
+        Ref: SFTPLayer
+      Principal:
+        Ref: AWS::AccountId
+
+  SFTPFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 600
+      Environment:
+        Variables:
+          UPLOAD_STATE_TABLE:
+            Ref: UploadStatusTable
+      ReservedConcurrentExecutions: 5 # remove when the function is safe
+      Handler: main.handler
+      CodeUri: ../functions/sftp-uploader/
+      Layers:
+        - Ref: SFTPLayer 
+      Events:
+        ScheduleUpload:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 3 * * ? *)
+            Name: my-upload-function
+            Description: runs a function every day at 3am 
+            Enabled: True
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:AbortMultipartUpload
+                - s3:GetBucketLocation
+                - s3:GetObject
+                - s3:ListBucket
+                - s3:ListBucketMultipartUploads
+                - s3:PutObject
+              Resource:
+                - Fn::GetAtt: [ DataBucket , Arn ]
+                - Fn::Join:
+                  - ""
+                  - - Fn::GetAtt: [ DataBucket , Arn ]
+                    - "/*"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - "ssm:GetParameter"
+                - "ssm:GetParameters"
+                - "ssm:GetParametersByPath"
+              Resource:
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_host"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_key_password"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_ssh_key"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_username"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - "dynamodb:PutItem"
+              Resource:
+                - Fn::GetAtt: [UploadStatusTable, Arn]
+
+  UploadStatusTable:
+    Type: AWS::DynamoDB::Table
+    Description: Keeps information about sucessfully uploaded files
+    Properties:
+      TableName:
+        Fn::Sub: ${Name}-upload-status-${Stage}
+      AttributeDefinitions:
+        - AttributeName: year
+          AttributeType: S
+        - AttributeName: uploaded_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: year
+          KeyType: HASH
+        - AttributeName: uploaded_at
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+
 Outputs:
   CollectorEndpoint:
     Description: URL of the endpoint that should be used with Google Analytics Duplicator 

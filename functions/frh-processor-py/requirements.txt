@@ -1,3 +1,0 @@
-maxminddb=1.4.1
-#device_detector=0.8
-git+git://github.com/thinkwelltwd/device_detector.git

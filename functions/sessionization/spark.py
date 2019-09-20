@@ -18,7 +18,7 @@ spark = SparkSession\
 spark.conf.set('spark.driver.memory', '6g')
 spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
-df = spark.read.json('./non-ecommerce/*.jsonl')
+df = spark.read.json("./samples/ecommerce-basic/*")
 print("The number of partitions after read:", df.rdd.getNumPartitions())
 
 from datetime import datetime
@@ -721,7 +721,9 @@ rename_query = """
     select 
         body_cid as fullVisitorId, 
         visit_id as visitId,
+        ifnull(body_uid, '') as userId,
         message_id as requestId,
+        ts as timestamp,
         user_session_id as visitNumber,
         first_value as visitStartTime,
         date_format(ts, "yMMdd") as date,
@@ -792,13 +794,6 @@ rename_query = """
         page_path_level_two as hits_page_pagePathLevel2,
         page_path_level_three as hits_page_pagePathLevel3,
         page_path_level_four as hits_page_pagePathLevel4,
-        ifnull(body_ti, '') as hits_item_transactionId,
-        -- hits_item_productName,
-        -- hits_item_productCategory,
-        -- hits_item_productSku,
-        -- hits_item_itemQuantity,
-        -- hits_item_itemRevenue,
-        ifnull(body_cu, '') as hits_item_currencyCode,
         '' as hits_item_localItemRevenue,
         ifnull(body_col, '') as hits_eCommerceAction_option,
         ifnull(body_cos, '') as hits_eCommerceAction_step,
@@ -809,6 +804,14 @@ rename_query = """
         total_revenue_per_session as totals_transactionRevenue,
         ifnull(body_ts, '') as hits_transaction_transactionShipping,
         ifnull(body_tt, '') as hits_transaction_transactionTax,
+        ifnull(body_cu, '') as hits_transaction_currencyCode,
+        ifnull(body_ti, '') as hits_item_transactionId,
+        ifnull(body_in, '') as hits_item_productName, 
+        ifnull(body_ip, '') as hits_item_itemRevenue,
+        ifnull(body_iq, '') as hits_item_itemQuantity,
+        ifnull(body_ic, '') as hits_item_productSku,
+        ifnull(body_iv, '') as hits_item_productCategory,
+        ifnull(body_cu, '') as hits_item_currencyCode,
         hits_type,
         prca as hits_product_v2ProductCategory,
         -- prcc -> Product Coupon Code, fields needs to reconsidered
@@ -830,6 +833,7 @@ export_sessions = spark.sql("""
         select 
             fullVisitorId, 
             visitId, 
+            userId,
             visitNumber, 
             visitStartTime, 
             date, 
@@ -877,6 +881,7 @@ export_hits_pageviews = spark.sql("""
         select
             fullVisitorId,
             visitId,
+            requestId,
             visitStartTime,
             hits_hitNumber,
             hits_time,
@@ -905,6 +910,7 @@ export_hits_events = spark.sql("""
         select
            fullVisitorId,
            visitId,
+           requestId,
            visitStartTime,
            hits_hitNumber,
            hits_time,
@@ -934,6 +940,7 @@ export_products = spark.sql("""
         select
             fullVisitorId,
             visitid,
+            requestId,
             visitStartTime,
             hits_hitNumber,
             hits_time,
@@ -956,42 +963,105 @@ export_products = spark.sql("""
         and hits_type="EVENT"
         """) 
 
-#export_sessions.select("*").show(10)
-#export_hits_pageviews.select('*').show(10)
-#export_hits_events.select('*').show(10)
-#export_sessions.printSchema()
+export_transactions = spark.sql("""
+        select
+            fullVisitorId,
+            visitId,
+            requestId,
+            visitStartTime,
+            hits_hitNumber,
+            hits_time,
+            hits_hour,
+            hits_transation_transactionCoupon,
+            hits_transaction_transactionId,
+            hits_transaction_transactionRevenue,
+            totals_transactionRevenue,
+            hits_transaction_transactionShipping,
+            hits_transaction_transactionTax
+        from export
+        where hits_type="TRANSACTION"
+        """)
+
+export_items = spark.sql("""
+        select
+            fullVisitorId,
+            visitId,
+            requestId,
+            visitStartTime,
+            hits_hitNumber,
+            hits_time,
+            hits_hour,
+            hits_item_transactionId,
+            hits_item_productName, 
+            hits_item_itemRevenue,
+            hits_item_itemQuantity,
+            hits_item_productSKU,
+            hits_item_productCategory
+        from export
+        where hits_type="ITEM"
+        """)
+
+export_transactions.selectExpr(
+        "fullVisitorId",
+        "visitId",
+        "hits_transaction_transactionId",
+        "hits_transaction_transactionRevenue"
+        ).show(5)
+
+export_items.selectExpr(
+        "fullVisitorId",
+        "visitId",
+        "hits_item_transactionId",
+        "hits_item_productName",
+        "hits_item_itemRevenue",
+        "hits_item_itemQuantity"
+        ).show()
+
 export_sessions.select('*')\
     .coalesce(1)\
     .write\
     .option('header', 'true')\
     .mode("Overwrite")\
-    .csv('export/sessions')
+    .csv('./samples/export/sessions')
 
-export_hits_pageviews.select('*')\
-    .coalesce(1)\
-    .write\
-    .option('header', 'true')\
-    .mode("Overwrite")\
-    .csv('export/pageviews')
+#export_hits_pageviews.select('*')\
+#    .coalesce(1)\
+#    .write\
+#    .option('header', 'true')\
+#    .mode("Overwrite")\
+#    .csv('export/pageviews')
+#
+#export_hits_events.select('*')\
+#    .coalesce(1)\
+#    .write\
+#    .option('header', 'true')\
+#    .mode("Overwrite")\
+#    .csv('export/events')
+#
+#export_products.select('*')\
+#    .coalesce(1)\
+#    .write\
+#    .option('header', 'true')\
+#    .mode("Overwrite")\
+#    .csv('export/products')
 
-export_hits_events.select('*')\
-    .coalesce(1)\
-    .write\
-    .option('header', 'true')\
-    .mode("Overwrite")\
-    .csv('export/events')
+#spark.sql("select * from export").coalesce(1)\
+#        .write\
+#        .format("csv")\
+#        .option("header", "true")\
+#        .mode("overwrite")\
+#        .save("export-all")
+#
 
-export_products.select('*')\
-    .coalesce(1)\
-    .write\
-    .option('header', 'true')\
-    .mode("Overwrite")\
-    .csv('export/products')
-
+#export_sessions.select("*")
+#export_hits_pageviews.select('*').show(10)
+#export_hits_events.select('*').show(10)
+#export_sessions.printSchema()
 
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
 dt_end = datetime.strptime(time_end, tsfm) 
 print("End time: ", dt_end)
 print("Running time: ", (dt_end - dt_start).seconds, " seconds")
+
 
 

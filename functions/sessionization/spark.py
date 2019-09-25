@@ -1,13 +1,22 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType
+from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
 from pyspark.sql import functions as f
+from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit
 from pyspark.sql.window import Window
-from pyspark.sql import types as t
 from pyspark.sql import Row
 from pyspark.sql.window import Window
+from schemas import session_schema
+from datetime import datetime
+import urllib.parse as urlparse
+from functools import partial, reduce
 import sys
 import re
 import os
+
+pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
+
+def show_partition_id(df, col):
+    return df.select(col, spark_partition_id().alias("partition_id")).show(1000, True)
 
 spark = SparkSession\
     .builder\
@@ -20,65 +29,16 @@ spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
 df = spark.read.json("./samples/ecommerce-basic/*")
 
-session_schema = StructType([
-        StructField("fullVisitorId", StringType(), True),
-        StructField("visitid", StringType(), True),
-        StructField("userId", StringType(), True),
-        StructField("visitNumber", IntegerType(), True), 
-        StructField("visitStartTime", LongType(), True), 
-        StructField("date", IntegerType(), True),
-        StructField("timestamp", TimestampType(), True),
-        StructField("trafficSource_campaign", StringType(), True),
-        StructField("trafficSource_source", StringType(), True), 
-        StructField("trafficSource_medium", StringType(), True),
-        StructField("trafficSource_keyword", StringType(), True),
-        StructField("trafficSource_ad_content", StringType(), True),
-        StructField("geoNetwork_continent", StringType(), True),
-        StructField("geoNetwork_subContinent", StringType(), True),
-        StructField("geoNetwork_country", StringType(), True),
-        StructField("geoNetwork_region", StringType(), True),
-        StructField("geoNetwork_metro", StringType(), True),
-        StructField("geoNetwork_city", StringType(), True),
-        StructField("geoNetwork_cityId", IntegerType(), True),
-        StructField("geoNetwork_networkDomain", StringType(), True),
-        StructField("geoNetwork_latitude", DoubleType(), True),
-        StructField("geoNetwork_longitude", DoubleType(), True),
-        StructField("geoNetwork_networkLocation", StringType(), True),
-        StructField("device_browser", StringType(), True),
-        StructField("device_browserVersion", DoubleType(), True),
-        StructField("device_browserSize", StringType(), True),
-        StructField("device_operatingSystem", StringType(), True),
-        StructField("device_operatingSystemVersion", StringType(), True),
-        StructField("device_isMobile", BooleanType(), True),
-        StructField("device_mobileDeviceBranding", StringType(), True),
-        StructField("device_mobileDeviceModel", StringType(), True), 
-        StructField("device_mobileInputSelector", StringType(), True),
-        StructField("device_mobileDeviceInfo", StringType(), True),
-        StructField("device_mobileDeviceMarketingName", StringType(), True),
-        StructField("device_flashVersion", IntegerType(), True),
-        StructField("device_javaEnabled", StringType(), True),
-        StructField("device_language", StringType(), True),
-        StructField("device_screenColors", StringType(), True),
-        StructField("device_screenResolution", StringType(), True),
-        StructField("device_deviceCategory", StringType(), True),
-        StructField("totals_transactionRevenue", StringType(), True),
-        StructField("landingPage", StringType(), True),
-        StructField("hits_type", StringType(), True)
-        ])
 
 session_history = spark.read.format("csv")\
         .option("mode", "FAILFAST")\
-        .option("inferSchema", "True")\
+        .option("inferSchema", "false")\
         .option("header", "true")\
         .option("path", "./export/table")\
         .schema(session_schema)\
         .load()
 
 
-print(session_history.schema)
-print("The number of partitions after read:", df.rdd.getNumPartitions())
-
-from datetime import datetime
 tsfm = "%Y-%m-%d %H:%M:%S"
 time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
 dt_start = datetime.strptime(time_start, tsfm) 
@@ -217,21 +177,21 @@ df = df.withColumn(
 ## end renaming the column 
 
 df_clean = df.drop(*columns_to_drop)
-reparitioned_df_clean = df_clean
 
-reparitioned_df_clean.createOrReplaceTempView('clicks')
+df_clean.createOrReplaceTempView('clicks')
 
-required_columns_query = 'select *, null as body_el, null as body_ev from clicks'
+with_columns = spark.sql("""
+                            select *, null as body_el, null as body_ev from clicks
+                        """)
 
-with_columns = spark.sql(required_columns_query)
-
-query = """ 
+sessions = spark.sql(""" 
                 select *,
-                null as global_session_id, -- sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
+                null as global_session_id, 
+                -- sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
                 sum(is_new_session) over (partition by body_cid order by received_at_apig) as user_session_id
                 from (
                     select *,
-                    case when received_at_apig - last_event >= (10000 * 30)
+                    case when received_at_apig - last_event >= (60000 * 30)
                     or last_event is null
                     then 1 else 0 end as is_new_session
                 from (
@@ -244,56 +204,38 @@ query = """
                 ) final
                 where not body_t='adtiming' or not body_t='timing'
 
-    """
-
-sessions = spark.sql(query)
-# 569123 count(body_cid) 
+    """)
 
 # filter out adtiming and timing events
 sessions_clean = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
 sessions_clean.createOrReplaceTempView('sessions')
-# 489102 count(body_cid) 
 
-sessions_count = spark.sql('select count(body_cid) from sessions where ts between "2019-08-09" and "2019-08-10" and is_new_session="1"')
-#sessions_count.show()
-
-import sys
-
-session_id_query = """ select *, sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
-                        row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
-from
+with_session_ids = spark.sql(""" 
+    select *, 
+    sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
+    row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
+        from
           (
-          select *, first_value(received_at_apig) over (partition by body_cid, user_session_id order by is_new_session desc) as first_value,
-          last_value(received_at_apig) over (partition by body_cid, user_session_id) as last_value
-          from sessions
+          select *, 
+          first_value(received_at_apig) over 
+          (partition by body_cid, user_session_id order by is_new_session desc) as first_value,
+          last_value(received_at_apig) over 
+          (partition by body_cid, user_session_id) as last_value
+            from sessions
           ) a
-"""
+""")
 
-from pyspark.sql.functions import spark_partition_id
-
-def show_partition_id(df):
-    return df.select("visit_id", spark_partition_id().alias("partition_id")).show(1000, True)
-
-with_session_ids = spark.sql(session_id_query)
-partitioned = with_session_ids
-#show_partition_id(with_session_ids)
-#show_partition_id(partitioned)
 w = Window.partitionBy(f.col("visit_id"))
 
-with_session_ids = partitioned\
-    .withColumn(
-            'total_revenue_per_session',
-            f.when(f.col("is_new_session") == '1', 
-                    f.sum(f.when((f.col("body_t") == 'event') & (f.col("body_pa") == 'purchase'), f.col("body_tr")).otherwise(f.lit(''))
-                  ).over(w)).otherwise(f.lit('')))
+with_session_ids = with_session_ids\
+        .withColumn(
+                'total_revenue_per_session',
+                when(col("is_new_session") == '1', 
+                        sum(when((col("body_t") == 'event') & (col("body_pa") == 'purchase'), col("body_tr")).otherwise(lit(''))
+                                ).over(w)).otherwise(lit('')))
 
-import urllib
 
 ## start parsing the source
-import urllib.parse as urlparse
-from functools import partial, reduce
-
-pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
 channels = [
         'utm_source', 
@@ -565,11 +507,6 @@ def extract_source_ad_content(is_new_session, body_dl, body_dr):
 
 ## end parsing the adContent
 
-## start parsing is_true_direct
-
-## end parsing is_true_direct
-
-traffic_source_referral_path = f.udf(lambda x: x)
 traffic_source_campaign = f.udf(extract_source_campaign)
 traffic_source_source = f.udf(extract_source_source)
 traffic_source_medium = f.udf(extract_source_medium)
@@ -619,7 +556,7 @@ with_session_ids = with_session_ids.withColumn(
     traffic_source_is_true_direct(
             with_session_ids['traffic_source_source'])) 
 
-udf_page_path = f.udf(parse_page_path, t.ArrayType(t.StringType()))
+udf_page_path = f.udf(parse_page_path, ArrayType(StringType()))
 
 with_session_ids = with_session_ids\
                          .withColumn('page_path_level_one', udf_page_path(with_session_ids['body_dl'])[0])\
@@ -936,9 +873,37 @@ export_sessions = spark.sql("""
 
 sessions_today = export_sessions.select("*").where(f.col("timestamp") > "2019-09-22") 
 unioned = session_history.union(sessions_today)
-unioned.select("fullVisitorId", "visitId", "timestamp", "trafficSource_source")\
+
+w1 = Window\
+        .partitionBy("fullVisitorId")\
+        .orderBy("timestamp")
+
+first_touchpoint = first(col("trafficSource_source")).over(w1)
+
+multichannel_attribution = unioned\
+    .orderBy("timestamp")\
+    .selectExpr("*",
+        "collect_list(trafficSource_source) over (partition by fullVisitorId) as touchpoints")\
+      .withColumn("touchpoints_wo_direct", expr("filter(touchpoints, x -> x != '(direct)')"))\
+      .orderBy("timestamp")\
+      .select("*",
+              first_touchpoint.alias("first_touchpoint"), 
+              when(reverse(col("touchpoints_wo_direct"))[0].isNotNull(), reverse(col("touchpoints_wo_direct"))[0]).otherwise("(direct)").alias("last_touchpoint"))
+
+
+multichannel_attribution\
+    .select(
+        "fullVisitorId", 
+        "visitId", 
+        "timestamp", 
+        "trafficSource_source",
+        "touchpoints",
+        "first_touchpoint",
+        "last_touchpoint"
+        )\
         .orderBy("timestamp")\
-        .show(10)
+        .show(10, False)
+        
 
 export_hits_pageviews = spark.sql("""
         select
@@ -1099,11 +1064,6 @@ export_items = spark.sql("""
 #        .mode("overwrite")\
 #        .save("export-all")
 #
-
-#export_sessions.select("*")
-#export_hits_pageviews.select('*').show(10)
-#export_hits_events.select('*').show(10)
-#export_sessions.printSchema()
 
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
 dt_end = datetime.strptime(time_end, tsfm) 

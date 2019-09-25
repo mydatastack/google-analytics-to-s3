@@ -1,17 +1,20 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
 from pyspark.sql import functions as f
-from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit
+from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp
 from pyspark.sql.window import Window
 from pyspark.sql import Row
 from pyspark.sql.window import Window
-from schemas import session_schema
-from datetime import datetime
+from schemas import session_schema, batch_schema
+from datetime import datetime, timedelta
 import urllib.parse as urlparse
 from functools import partial, reduce
 import sys
 import re
 import os
+
+SESSION_HISTORY_PATH = "./samples/sessions_history/*"
+BATCH_STATE_PATH = "./samples/batch_state"
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
@@ -29,14 +32,32 @@ spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
 df = spark.read.json("./samples/ecommerce-basic/*")
 
+def load_file(path, file_format, schema):
+    try:
+        return spark.read.format(file_format).option("path", path).load()
+    except Exception as e:
+        print(e)
+        return spark.createDataFrame([], schema)
 
-session_history = spark.read.format("csv")\
-        .option("mode", "FAILFAST")\
-        .option("inferSchema", "false")\
-        .option("header", "true")\
-        .option("path", "./export/table")\
-        .schema(session_schema)\
-        .load()
+session_history = load_file(SESSION_HISTORY_PATH, "parquet", session_schema)
+batch_state = load_file(BATCH_STATE_PATH, "parquet", batch_schema)
+batch_state.cache()
+
+new_batch_state = spark.range(1)\
+    .withColumn("timestamp", current_timestamp())\
+    .withColumn("status", lit("pending"))\
+    .drop("id")
+
+batch_state = batch_state.union(new_batch_state)
+
+#batch_state.show()
+#session_history = spark.read.format("csv")\
+#        .option("mode", "FAILFAST")\
+#        .option("inferSchema", "false")\
+#        .option("header", "true")\
+#        .option("path", "./export/table")\
+#        .schema(session_schema)\
+#        .load()
 
 
 tsfm = "%Y-%m-%d %H:%M:%S"
@@ -871,8 +892,28 @@ export_sessions = spark.sql("""
 #    .mode("Append")\
 #    .csv('export/table')
 
-sessions_today = export_sessions.select("*").where(f.col("timestamp") > "2019-09-22") 
-unioned = session_history.union(sessions_today)
+def yesterday():
+    yesterday = (datetime.now() - timedelta(1))
+    yesterday_year = yesterday.strftime("%Y")
+    yesterday_month = yesterday.strftime("%m")
+    yesterday_day = yesterday.strftime("%d")
+    return yesterday_year + "-" + yesterday_month + "-" + yesterday_day
+
+def new_sessions(date):
+    return export_sessions\
+                .withColumn("touchpoints", lit(None))\
+                .withColumn("touchpoints_wo_direct", lit(None))\
+                .withColumn("first_touchpoint", lit(None))\
+                .withColumn("last_touchpoint", lit(None))\
+                .select("*")\
+                .where(export_sessions.timestamp.contains(date))
+
+print(new_sessions(yesterday()).columns)
+print(session_history.columns)
+print(list(set(new_sessions(yesterday()).columns) - set(session_history.columns)))
+
+unioned = session_history.union(new_sessions("2019-09-24"))
+unioned_dropped = unioned.drop("touchpoints", "touchpoints_wo_direct", "first_touchpoint", "last_touchpoint")
 
 w1 = Window\
         .partitionBy("fullVisitorId")\
@@ -880,7 +921,9 @@ w1 = Window\
 
 first_touchpoint = first(col("trafficSource_source")).over(w1)
 
-multichannel_attribution = unioned\
+session_history.select("fullVisitorId", "visitId", "timestamp").show(10, False)
+
+multichannel_attribution = unioned_dropped\
     .orderBy("timestamp")\
     .selectExpr("*",
         "collect_list(trafficSource_source) over (partition by fullVisitorId) as touchpoints")\
@@ -890,20 +933,33 @@ multichannel_attribution = unioned\
               first_touchpoint.alias("first_touchpoint"), 
               when(reverse(col("touchpoints_wo_direct"))[0].isNotNull(), reverse(col("touchpoints_wo_direct"))[0]).otherwise("(direct)").alias("last_touchpoint"))
 
+multichannel_attribution.select("fullVisitorId", "visitId", "timestamp", "first_touchpoint", "last_touchpoint")\
+        .show(5, False)
 
 multichannel_attribution\
-    .select(
-        "fullVisitorId", 
-        "visitId", 
-        "timestamp", 
-        "trafficSource_source",
-        "touchpoints",
-        "first_touchpoint",
-        "last_touchpoint"
-        )\
-        .orderBy("timestamp")\
-        .show(10, False)
-        
+        .select("*")\
+        .where(multichannel_attribution.timestamp.contains("2019-09-24"))\
+        .coalesce(1)\
+        .write\
+        .mode("append")\
+        .format("parquet")\
+        #.save("./samples/sessions_history/")
+    
+multichannel_attribution\
+        .select("*")\
+        .where(multichannel_attribution.timestamp.contains(yesterday()))\
+        .coalesce(1)\
+        .write\
+        .mode("overwrite")\
+        .format("parquet")\
+        #.save("./samples/sessions_daily/")
+
+#export_sessions.select('*')\
+#    .coalesce(1)\
+#    .write\
+#    .option('header', 'true')\
+#    .mode("Overwrite")\
+#    .csv('./samples/export/sessions')
 
 export_hits_pageviews = spark.sql("""
         select
@@ -967,7 +1023,7 @@ export_hits_events = spark.sql("""
 export_products = spark.sql("""
         select
             fullVisitorId,
-            visitid,
+            visitId,
             requestId,
             visitStartTime,
             hits_hitNumber,
@@ -1064,6 +1120,22 @@ export_items = spark.sql("""
 #        .mode("overwrite")\
 #        .save("export-all")
 #
+
+new_batch_state = spark.range(1)\
+    .withColumn("timestamp", current_timestamp())\
+    .withColumn("status", lit("success"))\
+    .drop("id")
+
+batch_state = batch_state.union(new_batch_state)
+batch_state.show(10, False)
+
+batch_state\
+        .select("*")\
+        .coalesce(1)\
+        .write\
+        .mode("overwrite")\
+        .format("parquet")\
+        .save(BATCH_STATE_PATH)
 
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
 dt_end = datetime.strptime(time_end, tsfm) 

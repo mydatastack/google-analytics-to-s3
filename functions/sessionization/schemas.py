@@ -1,8 +1,8 @@
-from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType
+from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
 
 session_schema = StructType([
         StructField("fullVisitorId", StringType(), True),
-        StructField("visitid", StringType(), True),
+        StructField("visitId", StringType(), True),
         StructField("userId", StringType(), True),
         StructField("visitNumber", IntegerType(), True), 
         StructField("visitStartTime", LongType(), True), 
@@ -43,5 +43,14 @@ session_schema = StructType([
         StructField("device_deviceCategory", StringType(), True),
         StructField("totals_transactionRevenue", StringType(), True),
         StructField("landingPage", StringType(), True),
-        StructField("hits_type", StringType(), True)
+        StructField("hits_type", StringType(), True),
+        StructField("touchpoints", ArrayType(StringType()), True),
+        StructField("touchpoints_wo_direct", ArrayType(StringType()), True),
+        StructField("first_touchpoint", StringType(), True),
+        StructField("last_touchpoint", StringType(), True)
+        ])
+
+batch_schema = StructType([
+        StructField("timestamp", TimestampType(), True),
+        StructField("status", StringType(), True)
         ])

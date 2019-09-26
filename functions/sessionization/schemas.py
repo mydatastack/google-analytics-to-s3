@@ -51,6 +51,8 @@ session_schema = StructType([
         ])
 
 batch_schema = StructType([
-        StructField("timestamp", TimestampType(), True),
+        StructField("job_timestamp", TimestampType(), True),
+        StructField("job_date", DateType(), True),
+        StructField("data_processed_from", DateType(), True),
         StructField("status", StringType(), True)
         ])

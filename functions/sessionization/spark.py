@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
 from pyspark.sql import functions as f
-from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp
+from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp, current_date, date_sub, desc, date_add
 from pyspark.sql.window import Window
 from pyspark.sql import Row
 from pyspark.sql.window import Window
@@ -14,19 +14,27 @@ import re
 import os
 
 SESSION_HISTORY_PATH = "./samples/sessions_history/*"
-BATCH_STATE_PATH = "./samples/batch_state"
+BATCH_STATE_PATH = "./samples/batch_state/*"
+JOB_START_DATE = "2019-09-19"  # needs to be a day before the date you want start to process data
 
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
 def show_partition_id(df, col):
     return df.select(col, spark_partition_id().alias("partition_id")).show(1000, True)
 
+def calc_date(date=JOB_START_DATE):
+    x = (date - timedelta(1))
+    x_year = x.strftime("%Y")
+    x_month = x.strftime("%m")
+    x_day = x.strftime("%d")
+    x_date = x_year + "-" + x_month + "-" + x_day
+    return datetime.date(datetime.strptime(x_date, "%Y-%m-%d"))
+
 spark = SparkSession\
     .builder\
     .appName("Python Spark SQL basic example")\
     .getOrCreate()
 
-#spark.sparkContext.setLogLevel('ERROR')
 spark.conf.set('spark.driver.memory', '6g')
 spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
 
@@ -34,7 +42,12 @@ df = spark.read.json("./samples/ecommerce-basic/*")
 
 def load_file(path, file_format, schema):
     try:
-        return spark.read.format(file_format).option("path", path).load()
+        return spark\
+                .read\
+                .format(file_format)\
+                .option("path", path)\
+                .option("inferSchema", "false")\
+                .load()
     except Exception as e:
         print(e)
         return spark.createDataFrame([], schema)
@@ -43,23 +56,40 @@ session_history = load_file(SESSION_HISTORY_PATH, "parquet", session_schema)
 batch_state = load_file(BATCH_STATE_PATH, "parquet", batch_schema)
 batch_state.cache()
 
+def get_last_job_date(starting_date):
+    yesterday = calc_date(datetime.now())
+    try:
+        last_jobs_date = batch_state\
+                .orderBy(desc("job_timestamp"))\
+                .where(batch_state.status == "success")\
+                .head()[2]
+    except Exception as e:
+        print("Error from filtering batch table", e)
+        start_date = datetime.date(datetime.strptime(starting_date, "%Y-%m-%d"))
+        if start_date >= yesterday:
+            raise RuntimeError("Exit: cannot process future data. The new job date is in the future.")
+        else:
+            return start_date
+    else:
+        if last_jobs_date >= yesterday:
+            raise RuntimeError("Exit: cannot process future data. The new job date is in the future.")
+        else:
+            return last_jobs_date 
+
+last_job_date = get_last_job_date(JOB_START_DATE)
+current_job_date = last_job_date + timedelta(days=1) 
+
 new_batch_state = spark.range(1)\
-    .withColumn("timestamp", current_timestamp())\
-    .withColumn("status", lit("pending"))\
+    .withColumn("job_timestamp", current_timestamp())\
+    .withColumn("job_date", current_date())\
+    .withColumn("data_processed_from", date_add(lit(last_job_date), 1))\
+    .withColumn("status", lit("progress"))\
     .drop("id")
 
 batch_state = batch_state.union(new_batch_state)
 
-#batch_state.show()
-#session_history = spark.read.format("csv")\
-#        .option("mode", "FAILFAST")\
-#        .option("inferSchema", "false")\
-#        .option("header", "true")\
-#        .option("path", "./export/table")\
-#        .schema(session_schema)\
-#        .load()
 
-
+# start tracking the runtime of the script
 tsfm = "%Y-%m-%d %H:%M:%S"
 time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
 dt_start = datetime.strptime(time_start, tsfm) 
@@ -892,12 +922,6 @@ export_sessions = spark.sql("""
 #    .mode("Append")\
 #    .csv('export/table')
 
-def yesterday():
-    yesterday = (datetime.now() - timedelta(1))
-    yesterday_year = yesterday.strftime("%Y")
-    yesterday_month = yesterday.strftime("%m")
-    yesterday_day = yesterday.strftime("%d")
-    return yesterday_year + "-" + yesterday_month + "-" + yesterday_day
 
 def new_sessions(date):
     return export_sessions\
@@ -908,11 +932,8 @@ def new_sessions(date):
                 .select("*")\
                 .where(export_sessions.timestamp.contains(date))
 
-print(new_sessions(yesterday()).columns)
-print(session_history.columns)
-print(list(set(new_sessions(yesterday()).columns) - set(session_history.columns)))
 
-unioned = session_history.union(new_sessions("2019-09-24"))
+unioned = session_history.union(new_sessions(current_job_date))
 unioned_dropped = unioned.drop("touchpoints", "touchpoints_wo_direct", "first_touchpoint", "last_touchpoint")
 
 w1 = Window\
@@ -938,28 +959,24 @@ multichannel_attribution.select("fullVisitorId", "visitId", "timestamp", "first_
 
 multichannel_attribution\
         .select("*")\
-        .where(multichannel_attribution.timestamp.contains("2019-09-24"))\
+        .where(multichannel_attribution.timestamp.contains(current_job_date))\
         .coalesce(1)\
         .write\
         .mode("append")\
         .format("parquet")\
-        #.save("./samples/sessions_history/")
+        .save("./samples/sessions_history/")
     
 multichannel_attribution\
         .select("*")\
-        .where(multichannel_attribution.timestamp.contains(yesterday()))\
+        .where(multichannel_attribution.timestamp.contains(current_job_date))\
+        .drop("touchpoints")\
+        .drop("touchpoints_wo_direct")\
         .coalesce(1)\
         .write\
         .mode("overwrite")\
-        .format("parquet")\
-        #.save("./samples/sessions_daily/")
-
-#export_sessions.select('*')\
-#    .coalesce(1)\
-#    .write\
-#    .option('header', 'true')\
-#    .mode("Overwrite")\
-#    .csv('./samples/export/sessions')
+        .option("header", "true")\
+        .format("csv")\
+        .save("./samples/sessions_daily/")
 
 export_hits_pageviews = spark.sql("""
         select
@@ -1122,12 +1139,14 @@ export_items = spark.sql("""
 #
 
 new_batch_state = spark.range(1)\
-    .withColumn("timestamp", current_timestamp())\
+    .withColumn("job_timestamp", current_timestamp())\
+    .withColumn("job_date", current_date())\
+    .withColumn("data_processed_from", date_add(lit(last_job_date), 1))\
     .withColumn("status", lit("success"))\
     .drop("id")
 
 batch_state = batch_state.union(new_batch_state)
-batch_state.show(10, False)
+batch_state.show(100, False)
 
 batch_state\
         .select("*")\
@@ -1137,6 +1156,7 @@ batch_state\
         .format("parquet")\
         .save(BATCH_STATE_PATH)
 
+# end tracking the runtime of the script
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
 dt_end = datetime.strptime(time_end, tsfm) 
 print("End time: ", dt_end)

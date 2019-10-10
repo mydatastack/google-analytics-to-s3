@@ -1,46 +1,78 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
 from pyspark.sql import functions as f
-from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp, current_date, date_sub, desc, date_add
+from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp, current_date, date_sub, desc, date_add, udf
 from pyspark.sql.window import Window
 from pyspark.sql import Row
 from pyspark.sql.window import Window
-from schemas import session_schema, batch_schema
+from utils.schemas import session_schema, static_schema, static_required_fields, enhanced_ecom_schema
 from datetime import datetime, timedelta
+from utils.columns import columns_to_drop
 import urllib.parse as urlparse
 from functools import partial, reduce
 import sys
 import re
 import os
 
-SESSION_HISTORY_PATH = "./samples/sessions_history/*"
-BATCH_STATE_PATH = "./samples/batch_state/*"
-JOB_START_DATE = "2019-09-19"  # needs to be a day before the date you want start to process data
-
+# helper function for the pipelines
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
+# inspecting partitions
 def show_partition_id(df, col):
     return df.select(col, spark_partition_id().alias("partition_id")).show(1000, True)
 
-def calc_date(date=JOB_START_DATE):
-    x = (date - timedelta(1))
-    x_year = x.strftime("%Y")
-    x_month = x.strftime("%m")
-    x_day = x.strftime("%d")
-    x_date = x_year + "-" + x_month + "-" + x_day
-    return datetime.date(datetime.strptime(x_date, "%Y-%m-%d"))
+# start measuring runtime of the job
+tsfm = "%Y-%m-%d %H:%M:%S"
+time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+job_start = datetime.strptime(time_start, tsfm) 
+print("Job Start Time: ", job_start)
 
-spark = SparkSession\
-    .builder\
-    .appName("Python Spark SQL basic example")\
-    .getOrCreate()
+# provide job date as env variable to run the job - format YYYY-mm-dd
+JOB_DATE = os.getenv("JOB_DATE")
 
-spark.conf.set('spark.driver.memory', '6g')
-spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
+# constants
+SESSION_HISTORY_PATH = "./aggregated/ga/history/sessions"
+PATH = "./samples/ecommerce-basic/*"
 
-df = spark.read.json("./samples/ecommerce-basic/*")
+# splitting the date into partitions 
+def split_date(JOB_DATE: str) -> tuple:
+    job_date = datetime.strptime(JOB_DATE, "%Y-%m-%d").date()
+    return (job_date.strftime("%d"), job_date.strftime("%m"), job_date.strftime("%Y"))
 
-def load_file(path, file_format, schema):
+job_day, job_month, job_year = split_date(JOB_DATE)
+
+def main():
+    spark = SparkSession\
+        .builder\
+        .appName("Python Spark SQL basic example")\
+        .getOrCreate()
+
+    spark.conf.set('spark.driver.memory', '6g')
+    spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
+    return spark
+
+spark = main()
+
+def read_data(spark, path):
+    return spark.read.format("json")\
+            .option("mode", "FAILFAST")\
+            .option("inferSchema", "false")\
+            .option("path", path)\
+            .load()
+
+df = read_data(spark, PATH)
+
+def validate_fields(row: tuple, required_fields=static_required_fields) -> tuple:
+    fields = row.asDict()
+    available_fields = set(fields)
+    na_fields = required_fields - available_fields 
+    dct = dict.fromkeys(na_fields, None)
+    merged = {**fields, **dct} 
+    return Row(**merged)
+
+df = df.rdd.map(lambda row: validate_fields(row)).toDF(static_schema)
+
+def load_session(spark, path, file_format, schema):
     try:
         return spark\
                 .read\
@@ -52,76 +84,16 @@ def load_file(path, file_format, schema):
         print(e)
         return spark.createDataFrame([], schema)
 
-session_history = load_file(SESSION_HISTORY_PATH, "parquet", session_schema)
-batch_state = load_file(BATCH_STATE_PATH, "parquet", batch_schema)
-batch_state.cache()
+session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
 
-def get_last_job_date(starting_date):
-    yesterday = calc_date(datetime.now())
-    try:
-        last_jobs_date = batch_state\
-                .orderBy(desc("job_timestamp"))\
-                .where(batch_state.status == "success")\
-                .head()[2]
-    except Exception as e:
-        print("Error from filtering batch table", e)
-        start_date = datetime.date(datetime.strptime(starting_date, "%Y-%m-%d"))
-        if start_date >= yesterday:
-            raise RuntimeError("Exit: cannot process future data. The new job date is in the future.")
-        else:
-            return start_date
-    else:
-        if last_jobs_date >= yesterday:
-            raise RuntimeError("Exit: cannot process future data. The new job date is in the future.")
-        else:
-            return last_jobs_date 
-
-last_job_date = get_last_job_date(JOB_START_DATE)
-current_job_date = last_job_date + timedelta(days=1) 
-
-new_batch_state = spark.range(1)\
-    .withColumn("job_timestamp", current_timestamp())\
-    .withColumn("job_date", current_date())\
-    .withColumn("data_processed_from", date_add(lit(last_job_date), 1))\
-    .withColumn("status", lit("progress"))\
-    .drop("id")
-
-batch_state = batch_state.union(new_batch_state)
-
-
-# start tracking the runtime of the script
-tsfm = "%Y-%m-%d %H:%M:%S"
-time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
-dt_start = datetime.strptime(time_start, tsfm) 
-print("Start time: ", dt_start)
-#################### Start importing dependencies ###############
-
-columns_to_drop = [
-        'body__cbt',
-        'body__cst',
-        'body__gbt',
-        'body__gst',
-        'body__r',
-        'body__s',
-        'body__u',
-        'body__utma',
-        'body__utmht',
-        'body__utmz',
-        'body__v',
-        'body_a',
-        'body_clt',
-        'body_dit',
-        'body_dns',
-        'body_gjid',
-        'body_gtm',
-        'body_jid', # needed for linking data between doubleclick and ga
-        'body_pdt', # page download times
-        'body_plt', # page load times
-        'body_rrt', # redirect response time
-        'body_srt', # server response time
-        'body_tcp', # tcp connect time
-        ]
-
+def partial_pipe(url: str, fn):
+    return pipe([
+            parse_url,
+            query_is_empty,
+            extract_query_value,
+            split_query,
+            fn,
+            ]) (url)
 
 def parse_url(url: str) -> tuple:
     return urlparse.urlparse(url)
@@ -151,51 +123,8 @@ def construct_levels(p: list):
     else:
         return ['', '', '', '']
     
-def parse_page_path(url):
-    return pipe([
-            parse_url,
-            path_is_empty,
-            extract_path_value,
-            split_path,
-            construct_levels,
-            ]) (url)
-
-
-def filter_tmp(xs: list) -> list:
-    return xs
-    return [
-            sublist
-            for sublist in xs if any(v for v in sublist) 
-            ] 
-
-
-################## End importing dependencies ################
-
-df_columns = df.columns
-
-required_columns = [
-        "body_el",
-        "body_ev",
-        "body_pa",
-        "body_dr",
-        "body_fl",
-        "body_cu",
-        "body_col",
-        "body_cos",
-        "body_tcc",
-        "body_ti",
-        "body_tr",
-        "body_ts",
-        "body_tt"
-        ]
-
-def add_required_colum(column, df_columns):
-    if not column in df_columns: 
-        global df
-        df = df.withColumn(column, f.lit(None))
-
-for column in required_columns:
-    add_required_colum(column, df_columns)
+def parse_page_path(url: str) -> str:
+    return partial_pipe(url, construct_levels)
 
 ## start renaming the column body_t according to GA360
 def hits_type(t: str) -> str:
@@ -218,24 +147,18 @@ def hits_type(t: str) -> str:
     else:
         return 'UNKNOWN'
 
+def rename_hits_type(input_df, fn):
+    f = udf(fn)
+    return input_df\
+                .withColumn(
+                'hits_type',
+                f(input_df['body_t']))
 
-udf_map_hits_type = f.udf(hits_type)
+df = rename_hits_type(df, hits_type)
 
-df = df.withColumn(
-        'hits_type',
-        udf_map_hits_type(df['body_t']))
-
-## end renaming the column 
-
-df_clean = df.drop(*columns_to_drop)
-
-df_clean.createOrReplaceTempView('clicks')
-
-with_columns = spark.sql("""
-                            select *, null as body_el, null as body_ev from clicks
-                        """)
-
-sessions = spark.sql(""" 
+def add_user_session_id(spark, input_df):
+    input_df.createOrReplaceTempView('clicks')
+    return spark.sql(""" 
                 select *,
                 null as global_session_id, 
                 -- sum(is_new_session) over (order by body_cid, received_at_apig) as global_session_id,
@@ -257,34 +180,39 @@ sessions = spark.sql("""
 
     """)
 
-# filter out adtiming and timing events
-sessions_clean = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
-sessions_clean.createOrReplaceTempView('sessions')
+sessions = add_user_session_id(spark, df)
+sessions = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
 
-with_session_ids = spark.sql(""" 
-    select *, 
-    sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
-    row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
-        from
-          (
-          select *, 
-          first_value(received_at_apig) over 
-          (partition by body_cid, user_session_id order by is_new_session desc) as first_value,
-          last_value(received_at_apig) over 
-          (partition by body_cid, user_session_id) as last_value
-            from sessions
-          ) a
-""")
+def calculate_visit_id(spark, input_df):
+    input_df.createOrReplaceTempView('sessions')
+    return spark.sql(""" 
+        select *, 
+        sha(concat(a.body_cid, a.first_value, a.last_value)) as visit_id,
+        row_number() over (partition by body_cid order by received_at_apig asc) as event_sequence
+            from
+              (
+              select *, 
+              first_value(received_at_apig) over 
+              (partition by body_cid, user_session_id order by is_new_session desc) as first_value,
+              last_value(received_at_apig) over 
+              (partition by body_cid, user_session_id) as last_value
+                from sessions
+              ) a
+    """)
 
-w = Window.partitionBy(f.col("visit_id"))
+with_session_ids = calculate_visit_id(spark, sessions)
 
-with_session_ids = with_session_ids\
-        .withColumn(
-                'total_revenue_per_session',
-                when(col("is_new_session") == '1', 
-                        sum(when((col("body_t") == 'event') & (col("body_pa") == 'purchase'), col("body_tr")).otherwise(lit(''))
-                                ).over(w)).otherwise(lit('')))
+def get_total_revenue(input_df):
+    w = Window.partitionBy(f.col("visit_id"))
+    return input_df\
+                .withColumn(
+                    'total_revenue_per_session',
+                    when(col("is_new_session") == '1', 
+                        sum(when((col("body_t") == 'event') & (col("body_pa") == 'purchase'), 
+                                col("body_tr")).otherwise(lit(''))
+                        ).over(w)).otherwise(lit('')))
 
+with_session_ids = get_total_revenue(with_session_ids)
 
 ## start parsing the source
 
@@ -339,13 +267,7 @@ def identify_channel(channel_list: list, qr: str):
         return '(not set)' 
 
 def parse_dl_source(url):
-    return pipe([
-            parse_url,
-            query_is_empty,
-            extract_query_value,
-            split_query,
-            partial(identify_channel, channels),
-            ]) (url)
+    return partial_pipe(url, partial(identify_channel, channels))
 
 def split_hostname(body_dr: str) -> str:
     hostname = parse_url(body_dr).netloc
@@ -402,13 +324,7 @@ def identify_campaign(qr: dict):
     return qr['utm_campaign'] if 'utm_campaign' in qr else '(not set)'
 
 def parse_source_campaign(url):
-    return pipe([
-            parse_url,
-            query_is_empty,
-            extract_query_value,
-            split_query,
-            identify_campaign,
-            ]) (url)
+    return partial_pipe(url, identify_campaign)
 
 def parse_dr_campaign(body_dl: str):
     empty_query = len(query_is_empty(parse_url(body_dl))) == 0
@@ -440,13 +356,7 @@ def identify_medium(qr: dict):
         return '(none)'
 
 def parse_source_medium(url: str):
-    return pipe([
-            parse_url,
-            query_is_empty,
-            extract_query_value,
-            split_query,
-            identify_medium,
-            ]) (url)
+    return partial_pipe(url, identify_medium)
 
 search_engines = [
         'google', 
@@ -507,13 +417,7 @@ def identify_keyword(qr: dict):
         return '(not set)'
 
 def parse_source_keyword(url: str):
-    return pipe([
-            parse_url,
-            query_is_empty,
-            extract_query_value,
-            split_query,
-            identify_keyword,
-            ]) (url)
+    return partial_pipe(url, identify_keyword)
 
 def parse_dr_keyword(body_dr: str, body_dl: str):
     hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
@@ -542,13 +446,7 @@ def identify_ad_content(qr: dict):
         return '(not set)'
 
 def parse_source_ad_content(url: str):
-    return pipe([
-            parse_url,
-            query_is_empty,
-            extract_query_value,
-            split_query,
-            identify_ad_content,
-            ]) (url)
+    return partial_pipe(url, identify_ad_content)
 
 def extract_source_ad_content(is_new_session, body_dl, body_dr):
     if (is_new_session == 1 and body_dr is None):
@@ -558,19 +456,24 @@ def extract_source_ad_content(is_new_session, body_dl, body_dr):
 
 ## end parsing the adContent
 
-traffic_source_campaign = f.udf(extract_source_campaign)
-traffic_source_source = f.udf(extract_source_source)
-traffic_source_medium = f.udf(extract_source_medium)
-traffic_source_keyword = f.udf(extract_source_keyword)
-traffic_source_ad_content = f.udf(extract_source_ad_content)
-traffic_source_is_true_direct = f.udf(lambda x: 'True' if x == '(direct)' else None)
+traffic_source_campaign = udf(extract_source_campaign)
+traffic_source_medium = udf(extract_source_medium)
+traffic_source_keyword = udf(extract_source_keyword)
+traffic_source_ad_content = udf(extract_source_ad_content)
+traffic_source_is_true_direct = udf(lambda x: 'True' if x == '(direct)' else None)
 
-with_session_ids = with_session_ids.withColumn(
-    'traffic_source_source',
-    traffic_source_source(
-            with_session_ids['is_new_session'], 
-            with_session_ids['body_dl'], 
-            with_session_ids['body_dr']))
+def add_column(input_df, col_name, fn_udf, *args):
+    return input_df.withColumn(col_name, fn_udf(*args))
+
+with_session_ids = add_column(
+        with_session_ids, 
+        "traffic_source_source", 
+        udf(extract_source_source),
+        with_session_ids['is_new_session'], 
+        with_session_ids['body_dl'], 
+        with_session_ids['body_dr']
+        )
+
 
 with_session_ids = with_session_ids.withColumn(
     'traffic_source_campaign',
@@ -713,17 +616,13 @@ for i in index:
 
 all_columns_df
 
-bodies_schema = StructType([StructField('ms_id', StringType()),StructField('prca', StringType()),StructField('prcc', StringType()),StructField('prid', StringType()),StructField('prnm', StringType()),StructField('prpr', StringType()),StructField('prqt', StringType()),StructField('prva', StringType())])
-
-
 bodies = all_columns_df.rdd \
    .flatMap(lambda x: [Row(
            ms_id=x.message_id, prca=x['body_pr'+str(c)+'ca'], 
            prcc=x['body_pr'+str(c)+'cc'], prid=x['body_pr'+str(c)+'id'], 
            prnm=x['body_pr'+str(c)+'nm'], prpr=x['body_pr'+str(c)+'pr'], 
            prqt=x['body_pr'+str(c)+'qt'], prva=x['body_pr'+str(c)+'va']) 
-           for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(bodies_schema)
-
+           for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(enhanced_ecom_schema)
 
 result = main.alias('main') \
    .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
@@ -803,14 +702,14 @@ rename_query = """
         device_device_info as device_mobileDeviceInfo,
         device_device_name as device_mobileDeviceMarketingName,
         ifnull(body_fl, '') as device_flashVersion,
-        body_je as device_javaEnabled,
-        body_ul as device_language,
-        body_sd as device_screenColors,
-        body_sr as device_screenResolution,
+        ifnull(body_je, '') as device_javaEnabled,
+        ifnull(body_ul, '') as device_language,
+        ifnull(body_sd, '') as device_screenColors,
+        ifnull(body_sr, '') as device_screenResolution,
         device_device_type as device_deviceCategory,
         landing_page as landingPage,
-        body_ec as hits_eventInfo_eventCategory,
-        body_ea as hits_eventInfo_eventAction,
+        ifnull(body_ec, '') as hits_eventInfo_eventCategory,
+        ifnull(body_ea, '') as hits_eventInfo_eventAction,
         ifnull(body_el, '') as hits_eventInfo_eventLabel,
         ifnull(body_ev, '') as hits_eventInfo_eventValue,
         event_sequence as hits_hitNumber,
@@ -822,7 +721,7 @@ rename_query = """
         '' as hits_referer,
         page_path as hits_page_pagePath,
         hostname as hits_page_hostname,
-        body_dt as hits_page_pageTitle,
+        ifnull(body_dt, '') as hits_page_pageTitle,
         '' as hits_page_searchKeyword,
         '' as hits_page_searchCategory,
         page_path_level_one as hits_page_pagePathLevel1,
@@ -849,7 +748,6 @@ rename_query = """
         ifnull(body_cu, '') as hits_item_currencyCode,
         hits_type,
         prca as hits_product_v2ProductCategory,
-        -- prcc -> Product Coupon Code, fields needs to reconsidered
         prid as hits_product_productSKU,
         prnm as hits_product_v2ProductName,
         prpr as hits_product_productPrice,
@@ -913,18 +811,9 @@ export_sessions = spark.sql("""
         where is_new_session='1'
         """) 
 
-#export_sessions\
-#    .select("*")\
-#    .where((f.col("timestamp") > "2019-09-21") & (f.col("timestamp") < "2019-09-22"))\
-#    .coalesce(1)\
-#    .write\
-#    .option('header', 'true')\
-#    .mode("Append")\
-#    .csv('export/table')
 
-
-def new_sessions(date):
-    return export_sessions\
+def new_sessions(input_df, date):
+    return input_df\
                 .withColumn("touchpoints", lit(None))\
                 .withColumn("touchpoints_wo_direct", lit(None))\
                 .withColumn("first_touchpoint", lit(None))\
@@ -933,8 +822,13 @@ def new_sessions(date):
                 .where(export_sessions.timestamp.contains(date))
 
 
-unioned = session_history.union(new_sessions(current_job_date))
-unioned_dropped = unioned.drop("touchpoints", "touchpoints_wo_direct", "first_touchpoint", "last_touchpoint")
+unioned = session_history.union(new_sessions(export_sessions, JOB_DATE))
+
+unioned_dropped = unioned.drop(
+        "touchpoints", 
+        "touchpoints_wo_direct", 
+        "first_touchpoint", 
+        "last_touchpoint")
 
 w1 = Window\
         .partitionBy("fullVisitorId")\
@@ -942,9 +836,7 @@ w1 = Window\
 
 first_touchpoint = first(col("trafficSource_source")).over(w1)
 
-session_history.select("fullVisitorId", "visitId", "timestamp").show(10, False)
-
-multichannel_attribution = unioned_dropped\
+export_multichannel_sessions = unioned_dropped\
     .orderBy("timestamp")\
     .selectExpr("*",
         "collect_list(trafficSource_source) over (partition by fullVisitorId) as touchpoints")\
@@ -954,29 +846,8 @@ multichannel_attribution = unioned_dropped\
               first_touchpoint.alias("first_touchpoint"), 
               when(reverse(col("touchpoints_wo_direct"))[0].isNotNull(), reverse(col("touchpoints_wo_direct"))[0]).otherwise("(direct)").alias("last_touchpoint"))
 
-multichannel_attribution.select("fullVisitorId", "visitId", "timestamp", "first_touchpoint", "last_touchpoint")\
+export_multichannel_sessions.select("fullVisitorId", "visitId", "timestamp", "first_touchpoint", "last_touchpoint")\
         .show(5, False)
-
-multichannel_attribution\
-        .select("*")\
-        .where(multichannel_attribution.timestamp.contains(current_job_date))\
-        .coalesce(1)\
-        .write\
-        .mode("append")\
-        .format("parquet")\
-        .save("./samples/sessions_history/")
-    
-multichannel_attribution\
-        .select("*")\
-        .where(multichannel_attribution.timestamp.contains(current_job_date))\
-        .drop("touchpoints")\
-        .drop("touchpoints_wo_direct")\
-        .coalesce(1)\
-        .write\
-        .mode("overwrite")\
-        .option("header", "true")\
-        .format("csv")\
-        .save("./samples/sessions_daily/")
 
 export_hits_pageviews = spark.sql("""
         select
@@ -984,6 +855,7 @@ export_hits_pageviews = spark.sql("""
             visitId,
             requestId,
             visitStartTime,
+            timestamp,
             hits_hitNumber,
             hits_time,
             hits_hour,
@@ -1013,6 +885,7 @@ export_hits_events = spark.sql("""
            visitId,
            requestId,
            visitStartTime,
+           timestamp,
            hits_hitNumber,
            hits_time,
            hits_hour,
@@ -1037,12 +910,13 @@ export_hits_events = spark.sql("""
         and hits_product_productSKU is null
         """)
 
-export_products = spark.sql("""
+export_hits_products = spark.sql("""
         select
             fullVisitorId,
             visitId,
             requestId,
             visitStartTime,
+            timestamp,
             hits_hitNumber,
             hits_time,
             hits_hour,
@@ -1064,12 +938,13 @@ export_products = spark.sql("""
         and hits_type="EVENT"
         """) 
 
-export_transactions = spark.sql("""
+export_hits_transactions = spark.sql("""
         select
             fullVisitorId,
             visitId,
             requestId,
             visitStartTime,
+            timestamp,
             hits_hitNumber,
             hits_time,
             hits_hour,
@@ -1083,12 +958,13 @@ export_transactions = spark.sql("""
         where hits_type="TRANSACTION"
         """)
 
-export_items = spark.sql("""
+export_hits_items = spark.sql("""
         select
             fullVisitorId,
             visitId,
             requestId,
             visitStartTime,
+            timestamp,
             hits_hitNumber,
             hits_time,
             hits_hour,
@@ -1102,65 +978,66 @@ export_items = spark.sql("""
         where hits_type="ITEM"
         """)
 
-#export_sessions.select('*')\
-#    .coalesce(1)\
-#    .write\
-#    .option('header', 'true')\
-#    .mode("Overwrite")\
-#    .csv('./samples/export/sessions')
-
-#export_hits_pageviews.select('*')\
-#    .coalesce(1)\
-#    .write\
-#    .option('header', 'true')\
-#    .mode("Overwrite")\
-#    .csv('export/pageviews')
-#
-#export_hits_events.select('*')\
-#    .coalesce(1)\
-#    .write\
-#    .option('header', 'true')\
-#    .mode("Overwrite")\
-#    .csv('export/events')
-#
-#export_products.select('*')\
-#    .coalesce(1)\
-#    .write\
-#    .option('header', 'true')\
-#    .mode("Overwrite")\
-#    .csv('export/products')
-
-#spark.sql("select * from export").coalesce(1)\
-#        .write\
-#        .format("csv")\
-#        .option("header", "true")\
-#        .mode("overwrite")\
-#        .save("export-all")
-#
-
-new_batch_state = spark.range(1)\
-    .withColumn("job_timestamp", current_timestamp())\
-    .withColumn("job_date", current_date())\
-    .withColumn("data_processed_from", date_add(lit(last_job_date), 1))\
-    .withColumn("status", lit("success"))\
-    .drop("id")
-
-batch_state = batch_state.union(new_batch_state)
-batch_state.show(100, False)
-
-batch_state\
+def save_history(df, JOB_DATE, path):
+        df\
         .select("*")\
-        .coalesce(1)\
+        .where(df.timestamp.contains(JOB_DATE))\
+        .repartition(1)\
+        .write\
+        .mode("append")\
+        .format("parquet")\
+        .save(path)
+
+save_history(export_multichannel_sessions, JOB_DATE, SESSION_HISTORY_PATH)
+
+def save_daily(df, JOB_DATE, path, *drop):
+    if len(drop) > 0:
+        df\
+        .select("*")\
+        .where(df.timestamp.contains(JOB_DATE))\
+        .drop(*drop)\
+        .repartition(1)\
         .write\
         .mode("overwrite")\
-        .format("parquet")\
-        .save(BATCH_STATE_PATH)
+        .option("header", "true")\
+        .format("csv")\
+        .save(path)
+    else:
+        df\
+        .select("*")\
+        .where(df.timestamp.contains(JOB_DATE))\
+        .repartition(1)\
+        .write\
+        .mode("overwrite")\
+        .option("header", "true")\
+        .format("csv")\
+        .save(path)
 
-# end tracking the runtime of the script
+save_daily(export_multichannel_sessions, 
+        JOB_DATE, 
+        f"./aggregated/ga/daily/type=sessions/year={job_year}/month={job_month}/day={job_day}/",
+        "touchpoints",
+        "touchpoints_wo_direct")
+save_daily(export_hits_pageviews, 
+        JOB_DATE, 
+        f"./aggregated/ga/daily/type=pageviews/year={job_year}/month={job_month}/day={job_day}/")
+save_daily(export_hits_events, 
+        JOB_DATE, 
+        f"./aggregated/ga/daily/type=events/year={job_year}/month={job_month}/day={job_day}/")
+save_daily(export_hits_products, 
+        JOB_DATE, 
+        f"./aggregated/ga/daily/type=products/year={job_year}/month={job_month}/day={job_day}/")
+save_daily(export_hits_transactions, 
+        JOB_DATE, 
+        f"./aggregated/ga/daily/type=transactions/year={job_year}/month={job_month}/day={job_day}/")
+save_daily(export_hits_items, 
+        JOB_DATE, 
+        f"./aggregated/ga/daily/type=items/year={job_year}/month={job_month}/day={job_day}/")
+
+
+# measuring runtime of the script
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
-dt_end = datetime.strptime(time_end, tsfm) 
-print("End time: ", dt_end)
-print("Running time: ", (dt_end - dt_start).seconds, " seconds")
-
-
+job_end = datetime.strptime(time_end, tsfm) 
+print("End time: ", job_end)
+print("Running time: ", (job_end - job_start).seconds, " seconds")
 

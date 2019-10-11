@@ -27,8 +27,6 @@ time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 job_start = datetime.strptime(time_start, tsfm) 
 print("Job Start Time: ", job_start)
 
-# provide job date as env variable to run the job - format YYYY-mm-dd
-JOB_DATE = os.getenv("JOB_DATE")
 
 # constants
 SESSION_HISTORY_PATH = "./aggregated/ga/history/sessions"
@@ -39,9 +37,8 @@ def split_date(JOB_DATE: str) -> tuple:
     job_date = datetime.strptime(JOB_DATE, "%Y-%m-%d").date()
     return (job_date.strftime("%d"), job_date.strftime("%m"), job_date.strftime("%Y"))
 
-job_day, job_month, job_year = split_date(JOB_DATE)
 
-def main():
+def spark_context():
     spark = SparkSession\
         .builder\
         .appName("Python Spark SQL basic example")\
@@ -51,16 +48,12 @@ def main():
     spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
     return spark
 
-spark = main()
-
 def read_data(spark, path):
     return spark.read.format("json")\
             .option("mode", "FAILFAST")\
             .option("inferSchema", "false")\
             .option("path", path)\
             .load()
-
-df = read_data(spark, PATH)
 
 def validate_fields(row: tuple, required_fields=static_required_fields) -> tuple:
     fields = row.asDict()
@@ -69,8 +62,6 @@ def validate_fields(row: tuple, required_fields=static_required_fields) -> tuple
     dct = dict.fromkeys(na_fields, None)
     merged = {**fields, **dct} 
     return Row(**merged)
-
-df = df.rdd.map(lambda row: validate_fields(row)).toDF(static_schema)
 
 def load_session(spark, path, file_format, schema):
     try:
@@ -83,8 +74,6 @@ def load_session(spark, path, file_format, schema):
     except Exception as e:
         print(e)
         return spark.createDataFrame([], schema)
-
-session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
 
 def partial_pipe(url: str, fn):
     return pipe([
@@ -154,7 +143,7 @@ def rename_hits_type(input_df, fn):
                 'hits_type',
                 f(input_df['body_t']))
 
-df = rename_hits_type(df, hits_type)
+
 
 def add_user_session_id(spark, input_df):
     input_df.createOrReplaceTempView('clicks')
@@ -180,8 +169,6 @@ def add_user_session_id(spark, input_df):
 
     """)
 
-sessions = add_user_session_id(spark, df)
-sessions = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
 
 def calculate_visit_id(spark, input_df):
     input_df.createOrReplaceTempView('sessions')
@@ -200,7 +187,7 @@ def calculate_visit_id(spark, input_df):
               ) a
     """)
 
-with_session_ids = calculate_visit_id(spark, sessions)
+
 
 def get_total_revenue(input_df):
     w = Window.partitionBy(f.col("visit_id"))
@@ -212,7 +199,7 @@ def get_total_revenue(input_df):
                                 col("body_tr")).otherwise(lit(''))
                         ).over(w)).otherwise(lit('')))
 
-with_session_ids = get_total_revenue(with_session_ids)
+
 
 ## start parsing the source
 
@@ -456,67 +443,9 @@ def extract_source_ad_content(is_new_session, body_dl, body_dr):
 
 ## end parsing the adContent
 
-traffic_source_campaign = udf(extract_source_campaign)
-traffic_source_medium = udf(extract_source_medium)
-traffic_source_keyword = udf(extract_source_keyword)
-traffic_source_ad_content = udf(extract_source_ad_content)
-traffic_source_is_true_direct = udf(lambda x: 'True' if x == '(direct)' else None)
-
 def add_column(input_df, col_name, fn_udf, *args):
     return input_df.withColumn(col_name, fn_udf(*args))
 
-with_session_ids = add_column(
-        with_session_ids, 
-        "traffic_source_source", 
-        udf(extract_source_source),
-        with_session_ids['is_new_session'], 
-        with_session_ids['body_dl'], 
-        with_session_ids['body_dr']
-        )
-
-
-with_session_ids = with_session_ids.withColumn(
-    'traffic_source_campaign',
-    traffic_source_campaign(
-            with_session_ids['is_new_session'], 
-            with_session_ids['body_dl'], 
-            with_session_ids['body_dr']))
-
-with_session_ids = with_session_ids.withColumn(
-    'traffic_source_medium',
-    traffic_source_medium(
-            with_session_ids['is_new_session'], 
-            with_session_ids['body_dl'], 
-            with_session_ids['body_dr']))
-
-with_session_ids = with_session_ids.withColumn(
-    'traffic_source_keyword',
-    traffic_source_keyword(
-            with_session_ids['is_new_session'], 
-            with_session_ids['body_dl'], 
-            with_session_ids['body_dr'],
-            with_session_ids['traffic_source_medium']
-            ))
-
-with_session_ids = with_session_ids.withColumn(
-    'traffic_source_ad_content',
-    traffic_source_ad_content(
-            with_session_ids['is_new_session'], 
-            with_session_ids['body_dl'], 
-            with_session_ids['body_dr']))
-
-with_session_ids = with_session_ids.withColumn(
-    'traffic_source_is_true_direct',
-    traffic_source_is_true_direct(
-            with_session_ids['traffic_source_source'])) 
-
-udf_page_path = f.udf(parse_page_path, ArrayType(StringType()))
-
-with_session_ids = with_session_ids\
-                         .withColumn('page_path_level_one', udf_page_path(with_session_ids['body_dl'])[0])\
-                         .withColumn('page_path_level_two', udf_page_path(with_session_ids['body_dl'])[1])\
-                         .withColumn('page_path_level_three', udf_page_path(with_session_ids['body_dl'])[2])\
-                         .withColumn('page_path_level_four', udf_page_path(with_session_ids['body_dl'])[3])\
 
 ## start with the extraction of landingpage
 def extract_landing_page(is_new_session, body_dl):
@@ -528,31 +457,22 @@ def extract_landing_page(is_new_session, body_dl):
 
 ## end with the extraction of landingpage
 
-udf_extract_landing_page = f.udf(extract_landing_page)
-
-with_session_ids = with_session_ids.withColumn(
-        'landing_page',
-        udf_extract_landing_page(
-                with_session_ids['is_new_session'],
-                with_session_ids['body_dl']
-                ))
-
-udf_extract_page_path = f.udf(lambda url: parse_url(url).path)
-
-with_session_ids = with_session_ids.withColumn(
-        'page_path',
-        udf_extract_page_path(with_session_ids['body_dl'])) 
-
-udf_extract_hostname = f.udf(lambda url: parse_url(url).netloc)
-
-with_session_ids = with_session_ids.withColumn(
-        'hostname',
-        udf_extract_hostname(with_session_ids['body_dl']))
 
 
 ## start calculating hits_eCommerceAction_action_type
 
-def action_type(pa: str) -> str:
+action_type_dict = {
+        "click": 1,
+        "detail": 2,
+        "add": 3,
+        "checkout": 5,
+        "purchase": 6,
+        "refund": 7,
+        "checkout_option": 8
+        }
+
+def action_type(lookup, pa: str) -> str:
+    #return lookup.get(pa, 0) 
     if pa == 'click':
         return 1
     elif pa == 'detail':
@@ -570,64 +490,62 @@ def action_type(pa: str) -> str:
     else:
         return 0
 
-udf_map_action_type = f.udf(action_type)
-
-with_session_ids = with_session_ids.withColumn(
-        'action_type',
-        udf_map_action_type(with_session_ids['body_pa']))
 
 ## end calculating hits_eCommerceAction_action_type
 
 
 ## start unflattening the product data
-col_names  = with_session_ids.columns
-regex = re.compile('\d+')
-tmp = [y for x in [re.findall(regex, c) for c in col_names] for y in x]
-tmp_index = spark.createDataFrame(list(map(lambda x: Row(index=x), tmp))).distinct().sort(f.col('index')).collect()
-index = [int(i.asDict()['index']) for i in tmp_index]
+def flatten_pr_data(spark, with_session_ids, schema):
+    col_names  = with_session_ids.columns
+    regex = re.compile('\d+')
+    tmp = [y for x in [re.findall(regex, c) for c in col_names] for y in x]
+    tmp_index = spark.createDataFrame(list(map(lambda x: Row(index=x), tmp))).distinct().sort(f.col('index')).collect()
+    index = [int(i.asDict()['index']) for i in tmp_index]
 
-main = with_session_ids.select('*')
+    main = with_session_ids.select('*')
 
-all_columns_df = with_session_ids.select('*')
+    all_columns_df = with_session_ids.select('*')
 
-for i in index:
-   col_name = 'body_pr' + str(i) + 'ca'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'cc'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'id'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'nm'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'pr'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'qt'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
-   col_name = 'body_pr' + str(i) + 'va'
-   if not col_name in col_names:
-       all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))
+    for i in index:
+       col_name = 'body_pr' + str(i) + 'ca'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+       col_name = 'body_pr' + str(i) + 'cc'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+       col_name = 'body_pr' + str(i) + 'id'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+       col_name = 'body_pr' + str(i) + 'nm'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+       col_name = 'body_pr' + str(i) + 'pr'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+       col_name = 'body_pr' + str(i) + 'qt'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))    
+       col_name = 'body_pr' + str(i) + 'va'
+       if not col_name in col_names:
+           all_columns_df = all_columns_df.withColumn(col_name, f.lit(None))
 
 
-all_columns_df
+    all_columns_df
 
-bodies = all_columns_df.rdd \
-   .flatMap(lambda x: [Row(
-           ms_id=x.message_id, prca=x['body_pr'+str(c)+'ca'], 
-           prcc=x['body_pr'+str(c)+'cc'], prid=x['body_pr'+str(c)+'id'], 
-           prnm=x['body_pr'+str(c)+'nm'], prpr=x['body_pr'+str(c)+'pr'], 
-           prqt=x['body_pr'+str(c)+'qt'], prva=x['body_pr'+str(c)+'va']) 
-           for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(enhanced_ecom_schema)
+    bodies = all_columns_df.rdd \
+       .flatMap(lambda x: [Row(
+               ms_id=x.message_id, prca=x['body_pr'+str(c)+'ca'], 
+               prcc=x['body_pr'+str(c)+'cc'], prid=x['body_pr'+str(c)+'id'], 
+               prnm=x['body_pr'+str(c)+'nm'], prpr=x['body_pr'+str(c)+'pr'], 
+               prqt=x['body_pr'+str(c)+'qt'], prva=x['body_pr'+str(c)+'va']) 
+               for c in index]).filter(lambda x:x.ms_id != None and (x.prca != None or x.prcc != None or x.prid != None or x.prnm != None or x.prpr != None or x.prqt != None or x.prva != None)).toDF(schema)
 
-result = main.alias('main') \
-   .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
+    result = main.alias('main') \
+       .join(bodies.alias('bodies'), f.col('main.message_id') == f.col('bodies.ms_id'), 'left_outer')
 
-result = result.drop('ms_id')
+    result = result.drop('ms_id')
+    return result
+
 ## end unflattening the product data
 
 
@@ -639,177 +557,166 @@ def product_revenue(qt: int, pr: int, action_type: int) -> int:
     else:
         return None
 
-udf_product_revenue = f.udf(product_revenue)
-
-result = result.withColumn(
-        'product_revenue',
-        udf_product_revenue(
-                result['prqt'],
-                result['prpr'],
-                result['action_type']
-                ))
-
-result.createOrReplaceTempView('final')
-
-rename_query = """
-    select 
-        body_cid as fullVisitorId, 
-        visit_id as visitId,
-        ifnull(body_uid, '') as userId,
-        message_id as requestId,
-        ts as timestamp,
-        user_session_id as visitNumber,
-        first_value as visitStartTime,
-        date_format(ts, "yMMdd") as date,
-        ifnull(body_dr, '') as trafficSource_referralPath,
-        traffic_source_campaign as trafficSource_campaign,
-        traffic_source_source as trafficSource_source,
-        traffic_source_medium as trafficSource_medium,
-        traffic_source_keyword as trafficSource_keyword,
-        traffic_source_ad_content as trafficSource_ad_content,
-        -- trafficSource_adwordsCkickInfo_campaignId
-        -- trafficSource_adwordsClickInfo_adGroupId
-        -- trafficSource_adwordsClickInfo_creativeId
-        -- trafficSource_adwordsClickInfo_criteriaId
-        -- trafficSource_adwordsClickInfo_page
-        -- trafficSource_adwordsClickInfo_slot
-        -- trafficSource_adwordsClickInfo_criteriaParameters
-        -- trafficSource_adwordsClickInfo_gclid
-        -- trafficSource_adwordsClickInfo_customerId
-        -- trafficSource_adwordsClickInfo_adNetworkType
-        -- trafficSource_adwordsClickInfo_targetingCriteria_boomUserlistId
-        -- trafficSource_adwordsClickInfo_isVideoAd
-        geo_continent as geoNetwork_continent,
-        geo_sub_continent as geoNetwork_subContinent,
-        geo_country as geoNetwork_country,
-        geo_region as geoNetwork_region,
-        geo_metro as geoNetwork_metro,
-        geo_city as geoNetwork_city,
-        geo_city_id as geoNetwork_cityId,
-        geo_network_domain as geoNetwork_networkDomain,
-        geo_latitude as geoNetwork_latitude,
-        geo_longitude as geoNetwork_longitude,
-        geo_network_location as geoNetwork_networkLocation,
-        device_client_name as device_browser,
-        device_client_version as device_browserVersion,
-        body_vp as device_browserSize,
-        device_os_name as device_operatingSystem,
-        device_os_version as device_operatingSystemVersion,
-        device_is_mobile as device_isMobile,
-        device_device_brand as device_mobileDeviceBranding,
-        device_device_model as device_mobileDeviceModel,
-        device_device_input as device_mobileInputSelector,
-        device_device_info as device_mobileDeviceInfo,
-        device_device_name as device_mobileDeviceMarketingName,
-        ifnull(body_fl, '') as device_flashVersion,
-        ifnull(body_je, '') as device_javaEnabled,
-        ifnull(body_ul, '') as device_language,
-        ifnull(body_sd, '') as device_screenColors,
-        ifnull(body_sr, '') as device_screenResolution,
-        device_device_type as device_deviceCategory,
-        landing_page as landingPage,
-        ifnull(body_ec, '') as hits_eventInfo_eventCategory,
-        ifnull(body_ea, '') as hits_eventInfo_eventAction,
-        ifnull(body_el, '') as hits_eventInfo_eventLabel,
-        ifnull(body_ev, '') as hits_eventInfo_eventValue,
-        event_sequence as hits_hitNumber,
-        ts as hits_time, -- needs to be calculated from the session start
-        hour(ts) as hits_hour,
-        minute(ts) as hits_minute,
-        '' as hits_isSecure, -- depricated can be removed
-        ifnull(body_ni, '') as hits_isInteractive,
-        '' as hits_referer,
-        page_path as hits_page_pagePath,
-        hostname as hits_page_hostname,
-        ifnull(body_dt, '') as hits_page_pageTitle,
-        '' as hits_page_searchKeyword,
-        '' as hits_page_searchCategory,
-        page_path_level_one as hits_page_pagePathLevel1,
-        page_path_level_two as hits_page_pagePathLevel2,
-        page_path_level_three as hits_page_pagePathLevel3,
-        page_path_level_four as hits_page_pagePathLevel4,
-        '' as hits_item_localItemRevenue,
-        ifnull(body_col, '') as hits_eCommerceAction_option,
-        ifnull(body_cos, '') as hits_eCommerceAction_step,
-        action_type as hits_eCommerceAction_action_type,
-        ifnull(body_tcc, '') as hits_transation_transactionCoupon,
-        ifnull(body_ti, '') as hits_transaction_transactionId,
-        ifnull(body_tr, '') as hits_transaction_transactionRevenue,
-        total_revenue_per_session as totals_transactionRevenue,
-        ifnull(body_ts, '') as hits_transaction_transactionShipping,
-        ifnull(body_tt, '') as hits_transaction_transactionTax,
-        ifnull(body_cu, '') as hits_transaction_currencyCode,
-        ifnull(body_ti, '') as hits_item_transactionId,
-        ifnull(body_in, '') as hits_item_productName, 
-        ifnull(body_ip, '') as hits_item_itemRevenue,
-        ifnull(body_iq, '') as hits_item_itemQuantity,
-        ifnull(body_ic, '') as hits_item_productSku,
-        ifnull(body_iv, '') as hits_item_productCategory,
-        ifnull(body_cu, '') as hits_item_currencyCode,
-        hits_type,
-        prca as hits_product_v2ProductCategory,
-        prid as hits_product_productSKU,
-        prnm as hits_product_v2ProductName,
-        prpr as hits_product_productPrice,
-        prqt as hits_product_productQuantity,
-        prva as hits_product_productVariant,
-        product_revenue as hits_product_productRevenue,
-        is_new_session
-        from final
-"""
-
-renaming = spark.sql(rename_query)
-renaming.createOrReplaceTempView('export')
-
-
-export_sessions = spark.sql("""
+def create_export_table(spark, input_df):
+    input_df.createOrReplaceTempView('final')
+    return spark.sql("""
         select 
-            fullVisitorId, 
-            visitId, 
-            userId,
-            visitNumber, 
-            visitStartTime, 
-            date, 
-            timestamp,
-            trafficSource_campaign,
-            trafficSource_source,
-            trafficSource_medium,
-            trafficSource_keyword,
-            trafficSource_ad_content,
-            geoNetwork_continent,
-            geoNetwork_subContinent,
-            geoNetwork_country,
-            geoNetwork_region,
-            geoNetwork_metro,
-            geoNetwork_city,
-            geoNetwork_cityId,
-            geoNetwork_networkDomain,
-            geoNetwork_latitude,
-            geoNetwork_longitude,
-            geoNetwork_networkLocation,
-            device_browser,
-            device_browserVersion,
-            device_browserSize,
-            device_operatingSystem,
-            device_operatingSystemVersion,
-            device_isMobile,
-            device_mobileDeviceBranding,
-            device_mobileDeviceModel,
-            device_mobileInputSelector,
-            device_mobileDeviceInfo,
-            device_mobileDeviceMarketingName,
-            device_flashVersion,
-            device_javaEnabled,
-            device_language,
-            device_screenColors,
-            device_screenResolution,
-            device_deviceCategory,
-            totals_transactionRevenue,
-            landingPage,
-            hits_type
-        from export
-        where is_new_session='1'
-        """) 
+            body_cid as fullVisitorId, 
+            visit_id as visitId,
+            ifnull(body_uid, '') as userId,
+            message_id as requestId,
+            ts as timestamp,
+            user_session_id as visitNumber,
+            first_value as visitStartTime,
+            date_format(ts, "yMMdd") as date,
+            ifnull(body_dr, '') as trafficSource_referralPath,
+            traffic_source_campaign as trafficSource_campaign,
+            traffic_source_source as trafficSource_source,
+            traffic_source_medium as trafficSource_medium,
+            traffic_source_keyword as trafficSource_keyword,
+            traffic_source_ad_content as trafficSource_ad_content,
+            -- trafficSource_adwordsCkickInfo_campaignId
+            -- trafficSource_adwordsClickInfo_adGroupId
+            -- trafficSource_adwordsClickInfo_creativeId
+            -- trafficSource_adwordsClickInfo_criteriaId
+            -- trafficSource_adwordsClickInfo_page
+            -- trafficSource_adwordsClickInfo_slot
+            -- trafficSource_adwordsClickInfo_criteriaParameters
+            -- trafficSource_adwordsClickInfo_gclid
+            -- trafficSource_adwordsClickInfo_customerId
+            -- trafficSource_adwordsClickInfo_adNetworkType
+            -- trafficSource_adwordsClickInfo_targetingCriteria_boomUserlistId
+            -- trafficSource_adwordsClickInfo_isVideoAd
+            geo_continent as geoNetwork_continent,
+            geo_sub_continent as geoNetwork_subContinent,
+            geo_country as geoNetwork_country,
+            geo_region as geoNetwork_region,
+            geo_metro as geoNetwork_metro,
+            geo_city as geoNetwork_city,
+            geo_city_id as geoNetwork_cityId,
+            geo_network_domain as geoNetwork_networkDomain,
+            geo_latitude as geoNetwork_latitude,
+            geo_longitude as geoNetwork_longitude,
+            geo_network_location as geoNetwork_networkLocation,
+            device_client_name as device_browser,
+            device_client_version as device_browserVersion,
+            body_vp as device_browserSize,
+            device_os_name as device_operatingSystem,
+            device_os_version as device_operatingSystemVersion,
+            device_is_mobile as device_isMobile,
+            device_device_brand as device_mobileDeviceBranding,
+            device_device_model as device_mobileDeviceModel,
+            device_device_input as device_mobileInputSelector,
+            device_device_info as device_mobileDeviceInfo,
+            device_device_name as device_mobileDeviceMarketingName,
+            ifnull(body_fl, '') as device_flashVersion,
+            ifnull(body_je, '') as device_javaEnabled,
+            ifnull(body_ul, '') as device_language,
+            ifnull(body_sd, '') as device_screenColors,
+            ifnull(body_sr, '') as device_screenResolution,
+            device_device_type as device_deviceCategory,
+            landing_page as landingPage,
+            ifnull(body_ec, '') as hits_eventInfo_eventCategory,
+            ifnull(body_ea, '') as hits_eventInfo_eventAction,
+            ifnull(body_el, '') as hits_eventInfo_eventLabel,
+            ifnull(body_ev, '') as hits_eventInfo_eventValue,
+            event_sequence as hits_hitNumber,
+            ts as hits_time, -- needs to be calculated from the session start
+            hour(ts) as hits_hour,
+            minute(ts) as hits_minute,
+            '' as hits_isSecure, -- depricated can be removed
+            ifnull(body_ni, '') as hits_isInteractive,
+            '' as hits_referer,
+            page_path as hits_page_pagePath,
+            hostname as hits_page_hostname,
+            ifnull(body_dt, '') as hits_page_pageTitle,
+            '' as hits_page_searchKeyword,
+            '' as hits_page_searchCategory,
+            page_path_level_one as hits_page_pagePathLevel1,
+            page_path_level_two as hits_page_pagePathLevel2,
+            page_path_level_three as hits_page_pagePathLevel3,
+            page_path_level_four as hits_page_pagePathLevel4,
+            '' as hits_item_localItemRevenue,
+            ifnull(body_col, '') as hits_eCommerceAction_option,
+            ifnull(body_cos, '') as hits_eCommerceAction_step,
+            action_type as hits_eCommerceAction_action_type,
+            ifnull(body_tcc, '') as hits_transation_transactionCoupon,
+            ifnull(body_ti, '') as hits_transaction_transactionId,
+            ifnull(body_tr, '') as hits_transaction_transactionRevenue,
+            total_revenue_per_session as totals_transactionRevenue,
+            ifnull(body_ts, '') as hits_transaction_transactionShipping,
+            ifnull(body_tt, '') as hits_transaction_transactionTax,
+            ifnull(body_cu, '') as hits_transaction_currencyCode,
+            ifnull(body_ti, '') as hits_item_transactionId,
+            ifnull(body_in, '') as hits_item_productName, 
+            ifnull(body_ip, '') as hits_item_itemRevenue,
+            ifnull(body_iq, '') as hits_item_itemQuantity,
+            ifnull(body_ic, '') as hits_item_productSku,
+            ifnull(body_iv, '') as hits_item_productCategory,
+            ifnull(body_cu, '') as hits_item_currencyCode,
+            hits_type,
+            prca as hits_product_v2ProductCategory,
+            prid as hits_product_productSKU,
+            prnm as hits_product_v2ProductName,
+            prpr as hits_product_productPrice,
+            prqt as hits_product_productQuantity,
+            prva as hits_product_productVariant,
+            product_revenue as hits_product_productRevenue,
+            is_new_session
+            from final
+    """)
+
+
+def create_export_sessions_table(spark, input_df):
+    input_df.createOrReplaceTempView("export")
+    return spark.sql("""
+            select 
+                fullVisitorId, 
+                visitId, 
+                userId,
+                visitNumber, 
+                visitStartTime, 
+                date, 
+                timestamp,
+                trafficSource_campaign,
+                trafficSource_source,
+                trafficSource_medium,
+                trafficSource_keyword,
+                trafficSource_ad_content,
+                geoNetwork_continent,
+                geoNetwork_subContinent,
+                geoNetwork_country,
+                geoNetwork_region,
+                geoNetwork_metro,
+                geoNetwork_city,
+                geoNetwork_cityId,
+                geoNetwork_networkDomain,
+                geoNetwork_latitude,
+                geoNetwork_longitude,
+                geoNetwork_networkLocation,
+                device_browser,
+                device_browserVersion,
+                device_browserSize,
+                device_operatingSystem,
+                device_operatingSystemVersion,
+                device_isMobile,
+                device_mobileDeviceBranding,
+                device_mobileDeviceModel,
+                device_mobileInputSelector,
+                device_mobileDeviceInfo,
+                device_mobileDeviceMarketingName,
+                device_flashVersion,
+                device_javaEnabled,
+                device_language,
+                device_screenColors,
+                device_screenResolution,
+                device_deviceCategory,
+                totals_transactionRevenue,
+                landingPage,
+                hits_type
+            from export
+            where is_new_session='1'
+            """) 
 
 
 def new_sessions(input_df, date):
@@ -819,164 +726,168 @@ def new_sessions(input_df, date):
                 .withColumn("first_touchpoint", lit(None))\
                 .withColumn("last_touchpoint", lit(None))\
                 .select("*")\
-                .where(export_sessions.timestamp.contains(date))
+                .where(input_df.timestamp.contains(date))
 
 
-unioned = session_history.union(new_sessions(export_sessions, JOB_DATE))
+def drop_columns(input_df, *args): 
+    return input_df.drop(*args)
 
-unioned_dropped = unioned.drop(
-        "touchpoints", 
-        "touchpoints_wo_direct", 
-        "first_touchpoint", 
-        "last_touchpoint")
 
-w1 = Window\
-        .partitionBy("fullVisitorId")\
-        .orderBy("timestamp")
+def calculate_touchpoints(input_df):
+    w1 = Window\
+            .partitionBy("fullVisitorId")\
+            .orderBy("timestamp")
 
-first_touchpoint = first(col("trafficSource_source")).over(w1)
+    first_touchpoint = first(col("trafficSource_source")).over(w1)
 
-export_multichannel_sessions = unioned_dropped\
-    .orderBy("timestamp")\
-    .selectExpr("*",
-        "collect_list(trafficSource_source) over (partition by fullVisitorId) as touchpoints")\
-      .withColumn("touchpoints_wo_direct", expr("filter(touchpoints, x -> x != '(direct)')"))\
-      .orderBy("timestamp")\
-      .select("*",
-              first_touchpoint.alias("first_touchpoint"), 
-              when(reverse(col("touchpoints_wo_direct"))[0].isNotNull(), reverse(col("touchpoints_wo_direct"))[0]).otherwise("(direct)").alias("last_touchpoint"))
+    return input_df\
+        .orderBy("timestamp")\
+        .selectExpr("*",
+            "collect_list(trafficSource_source) over (partition by fullVisitorId) as touchpoints")\
+          .withColumn("touchpoints_wo_direct", expr("filter(touchpoints, x -> x != '(direct)')"))\
+          .orderBy("timestamp")\
+          .select("*",
+                  first_touchpoint.alias("first_touchpoint"), 
+                  when(reverse(col("touchpoints_wo_direct"))[0].isNotNull(), reverse(col("touchpoints_wo_direct"))[0]).otherwise("(direct)").alias("last_touchpoint"))
 
-export_multichannel_sessions.select("fullVisitorId", "visitId", "timestamp", "first_touchpoint", "last_touchpoint")\
-        .show(5, False)
+def export_hits_pageviews_table(spark):
+    return spark.sql("""
+            select
+                fullVisitorId,
+                visitId,
+                requestId,
+                visitStartTime,
+                timestamp,
+                hits_hitNumber,
+                hits_time,
+                hits_hour,
+                hits_minute,
+                hits_isSecure,
+                hits_isInteractive,
+                hits_referer,
+                hits_page_pagePath,
+                hits_page_hostname,
+                hits_page_pageTitle,
+                hits_page_pagePathLevel1,
+                hits_page_pagePathLevel2,
+                hits_page_pagePathLevel3,
+                hits_page_pagePathLevel4,
+                hits_eventInfo_eventCategory,
+                hits_eventInfo_eventAction,
+                hits_eventInfo_eventLabel,
+                hits_eventInfo_eventValue,
+                hits_type
+            from export
+            where hits_type='PAGE'
+            """)
 
-export_hits_pageviews = spark.sql("""
-        select
-            fullVisitorId,
-            visitId,
-            requestId,
-            visitStartTime,
-            timestamp,
-            hits_hitNumber,
-            hits_time,
-            hits_hour,
-            hits_minute,
-            hits_isSecure,
-            hits_isInteractive,
-            hits_referer,
-            hits_page_pagePath,
-            hits_page_hostname,
-            hits_page_pageTitle,
-            hits_page_pagePathLevel1,
-            hits_page_pagePathLevel2,
-            hits_page_pagePathLevel3,
-            hits_page_pagePathLevel4,
-            hits_eventInfo_eventCategory,
-            hits_eventInfo_eventAction,
-            hits_eventInfo_eventLabel,
-            hits_eventInfo_eventValue,
-            hits_type
-        from export
-        where hits_type='PAGE'
-        """)
 
-export_hits_events = spark.sql("""
-        select
-           fullVisitorId,
-           visitId,
-           requestId,
-           visitStartTime,
-           timestamp,
-           hits_hitNumber,
-           hits_time,
-           hits_hour,
-           hits_minute,
-           hits_isSecure,
-           hits_isInteractive,
-           hits_referer,
-           hits_page_pagePath,
-           hits_page_hostname,
-           hits_page_pageTitle,
-           hits_page_pagePathLevel1,
-           hits_page_pagePathLevel2,
-           hits_page_pagePathLevel3,
-           hits_page_pagePathLevel4,
-           hits_eventInfo_eventCategory,
-           hits_eventInfo_eventAction,
-           hits_eventInfo_eventLabel,
-           hits_eventInfo_eventValue,
-           hits_type
-        from export
-        where hits_type='EVENT'
-        and hits_product_productSKU is null
-        """)
+def export_hits_events_table(spark):
+    return spark.sql("""
+            select
+               fullVisitorId,
+               visitId,
+               requestId,
+               visitStartTime,
+               timestamp,
+               hits_hitNumber,
+               hits_time,
+               hits_hour,
+               hits_minute,
+               hits_isSecure,
+               hits_isInteractive,
+               hits_referer,
+               hits_page_pagePath,
+               hits_page_hostname,
+               hits_page_pageTitle,
+               hits_page_pagePathLevel1,
+               hits_page_pagePathLevel2,
+               hits_page_pagePathLevel3,
+               hits_page_pagePathLevel4,
+               hits_eventInfo_eventCategory,
+               hits_eventInfo_eventAction,
+               hits_eventInfo_eventLabel,
+               hits_eventInfo_eventValue,
+               hits_type
+            from export
+            where hits_type='EVENT'
+            and hits_product_productSKU is null
+            """)
 
-export_hits_products = spark.sql("""
-        select
-            fullVisitorId,
-            visitId,
-            requestId,
-            visitStartTime,
-            timestamp,
-            hits_hitNumber,
-            hits_time,
-            hits_hour,
-            hits_minute,
-            hits_product_productPrice,
-            hits_product_productQuantity,
-            '' as hits_product_productRefundAmount,
-            hits_product_productSKU,
-            hits_product_productVariant,
-            hits_eCommerceAction_option,
-            hits_eCommerceAction_step,
-            hits_eCommerceAction_action_type,
-            hits_item_transactionId,
-            hits_product_productRevenue,
-            hits_transaction_transactionRevenue,
-            hits_type
-        from export
-        where hits_product_productSKU <> '' 
-        and hits_type="EVENT"
-        """) 
 
-export_hits_transactions = spark.sql("""
-        select
-            fullVisitorId,
-            visitId,
-            requestId,
-            visitStartTime,
-            timestamp,
-            hits_hitNumber,
-            hits_time,
-            hits_hour,
-            hits_transation_transactionCoupon,
-            hits_transaction_transactionId,
-            hits_transaction_transactionRevenue,
-            totals_transactionRevenue,
-            hits_transaction_transactionShipping,
-            hits_transaction_transactionTax
-        from export
-        where hits_type="TRANSACTION"
-        """)
+def export_hits_products_table(spark):
+    return spark.sql("""
+            select
+                fullVisitorId,
+                visitId,
+                requestId,
+                visitStartTime,
+                timestamp,
+                hits_hitNumber,
+                hits_time,
+                hits_hour,
+                hits_minute,
+                hits_product_productPrice,
+                hits_product_productQuantity,
+                '' as hits_product_productRefundAmount,
+                hits_product_productSKU,
+                hits_product_productVariant,
+                hits_eCommerceAction_option,
+                hits_eCommerceAction_step,
+                hits_eCommerceAction_action_type,
+                hits_item_transactionId,
+                hits_product_productRevenue,
+                hits_transaction_transactionRevenue,
+                hits_type
+            from export
+            where hits_product_productSKU <> '' 
+            and hits_type="EVENT"
+            """) 
 
-export_hits_items = spark.sql("""
-        select
-            fullVisitorId,
-            visitId,
-            requestId,
-            visitStartTime,
-            timestamp,
-            hits_hitNumber,
-            hits_time,
-            hits_hour,
-            hits_item_transactionId,
-            hits_item_productName, 
-            hits_item_itemRevenue,
-            hits_item_itemQuantity,
-            hits_item_productSKU,
-            hits_item_productCategory
-        from export
-        where hits_type="ITEM"
-        """)
+
+
+def export_hits_transactions_table(spark):
+    return spark.sql("""
+            select
+                fullVisitorId,
+                visitId,
+                requestId,
+                visitStartTime,
+                timestamp,
+                hits_hitNumber,
+                hits_time,
+                hits_hour,
+                hits_transation_transactionCoupon,
+                hits_transaction_transactionId,
+                hits_transaction_transactionRevenue,
+                totals_transactionRevenue,
+                hits_transaction_transactionShipping,
+                hits_transaction_transactionTax
+            from export
+            where hits_type="TRANSACTION"
+            """)
+
+
+def export_hits_items_table(spark):
+    return spark.sql("""
+            select
+                fullVisitorId,
+                visitId,
+                requestId,
+                visitStartTime,
+                timestamp,
+                hits_hitNumber,
+                hits_time,
+                hits_hour,
+                hits_item_transactionId,
+                hits_item_productName, 
+                hits_item_itemRevenue,
+                hits_item_itemQuantity,
+                hits_item_productSKU,
+                hits_item_productCategory
+            from export
+            where hits_type="ITEM"
+            """)
 
 def save_history(df, JOB_DATE, path):
         df\
@@ -988,7 +899,6 @@ def save_history(df, JOB_DATE, path):
         .format("parquet")\
         .save(path)
 
-save_history(export_multichannel_sessions, JOB_DATE, SESSION_HISTORY_PATH)
 
 def save_daily(df, JOB_DATE, path, *drop):
     if len(drop) > 0:
@@ -1013,27 +923,175 @@ def save_daily(df, JOB_DATE, path, *drop):
         .format("csv")\
         .save(path)
 
-save_daily(export_multichannel_sessions, 
-        JOB_DATE, 
-        f"./aggregated/ga/daily/type=sessions/year={job_year}/month={job_month}/day={job_day}/",
-        "touchpoints",
-        "touchpoints_wo_direct")
-save_daily(export_hits_pageviews, 
-        JOB_DATE, 
-        f"./aggregated/ga/daily/type=pageviews/year={job_year}/month={job_month}/day={job_day}/")
-save_daily(export_hits_events, 
-        JOB_DATE, 
-        f"./aggregated/ga/daily/type=events/year={job_year}/month={job_month}/day={job_day}/")
-save_daily(export_hits_products, 
-        JOB_DATE, 
-        f"./aggregated/ga/daily/type=products/year={job_year}/month={job_month}/day={job_day}/")
-save_daily(export_hits_transactions, 
-        JOB_DATE, 
-        f"./aggregated/ga/daily/type=transactions/year={job_year}/month={job_month}/day={job_day}/")
-save_daily(export_hits_items, 
-        JOB_DATE, 
-        f"./aggregated/ga/daily/type=items/year={job_year}/month={job_month}/day={job_day}/")
 
+def program(job_date):
+    job_day, job_month, job_year = split_date(job_date)
+    spark = spark_context()
+    df = read_data(spark, PATH)
+    df = df.rdd.map(lambda row: validate_fields(row)).toDF(static_schema)
+    session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
+    df = rename_hits_type(df, hits_type)
+    sessions = add_user_session_id(spark, df)
+    sessions = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
+    with_session_ids = calculate_visit_id(spark, sessions)
+    with_session_ids = get_total_revenue(with_session_ids)
+
+    with_session_ids = add_column(
+            with_session_ids, 
+            "traffic_source_source", 
+            udf(extract_source_source),
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr'])
+
+    with_session_ids = add_column(
+            with_session_ids, 
+            "traffic_source_campaign",
+            udf(extract_source_campaign),
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr'])
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "traffic_source_medium",
+            udf(extract_source_medium),
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr'])
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "traffic_source_keyword",
+            udf(extract_source_keyword),
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr'],
+            with_session_ids['traffic_source_medium'])
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "traffic_source_ad_content",
+            udf(extract_source_ad_content),
+            with_session_ids['is_new_session'], 
+            with_session_ids['body_dl'], 
+            with_session_ids['body_dr'])
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "traffic_source_is_true_direct",
+            udf(lambda x: 'True' if x == '(direct)' else None),
+            with_session_ids['traffic_source_source']) 
+
+    udf_page_path = udf(parse_page_path, ArrayType(StringType()))
+
+    with_session_ids = with_session_ids\
+                           .withColumn(
+                             'page_path_level_one', udf_page_path(with_session_ids['body_dl'])[0])\
+                           .withColumn(
+                             'page_path_level_two', udf_page_path(with_session_ids['body_dl'])[1])\
+                           .withColumn(
+                             'page_path_level_three', udf_page_path(with_session_ids['body_dl'])[2])\
+                           .withColumn(
+                              'page_path_level_four', udf_page_path(with_session_ids['body_dl'])[3])\
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "landing_page",
+            udf(extract_landing_page),
+            with_session_ids['is_new_session'],
+            with_session_ids['body_dl'])
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "page_path",
+            udf(lambda url: parse_url(url).path),
+            with_session_ids['body_dl']) 
+
+    udf_extract_hostname = f.udf(lambda url: parse_url(url).netloc)
+
+    with_session_ids = add_column(
+            with_session_ids,
+            "hostname",
+            udf(lambda url: parse_url(url).netloc),
+            with_session_ids['body_dl'])
+
+    udf_map_action_type = f.udf(partial(action_type, action_type_dict))
+
+    with_session_ids = with_session_ids.withColumn(
+            'action_type',
+            udf_map_action_type(with_session_ids['body_pa']))
+    result = flatten_pr_data(spark, with_session_ids, enhanced_ecom_schema)
+
+    udf_product_revenue = f.udf(product_revenue)
+
+    result = result.withColumn(
+            'product_revenue',
+            udf_product_revenue(
+                    result['prqt'],
+                    result['prpr'],
+                    result['action_type']
+                    ))
+
+    export_table = create_export_table(spark, result)
+        
+    export_sessions = create_export_sessions_table(spark, export_table)
+
+    unioned = session_history.union(new_sessions(export_sessions, job_date))
+
+    unioned_dropped = drop_columns(unioned,
+                "touchpoints", 
+                "touchpoints_wo_direct", 
+                "first_touchpoint", 
+                "last_touchpoint")
+    export_multichannel_sessions = calculate_touchpoints(unioned_dropped)
+
+    export_hits_pageviews = export_hits_pageviews_table(spark)
+
+    export_hits_events = export_hits_events_table(spark)
+    
+    export_hits_products = export_hits_products_table(spark)
+
+    export_hits_transactions =  export_hits_transactions_table(spark)
+
+    export_hits_items = export_hits_items_table(spark) 
+
+    save_history(export_multichannel_sessions, job_date, SESSION_HISTORY_PATH)
+
+    save_daily(export_multichannel_sessions, 
+            job_date, 
+            f"./aggregated/ga/daily/type=sessions/year={job_year}/month={job_month}/day={job_day}/",
+            "touchpoints",
+            "touchpoints_wo_direct")
+    save_daily(export_hits_pageviews, 
+            job_date, 
+            f"./aggregated/ga/daily/type=pageviews/year={job_year}/month={job_month}/day={job_day}/")
+    save_daily(export_hits_events, 
+            job_date, 
+            f"./aggregated/ga/daily/type=events/year={job_year}/month={job_month}/day={job_day}/")
+    save_daily(export_hits_products, 
+            job_date, 
+            f"./aggregated/ga/daily/type=products/year={job_year}/month={job_month}/day={job_day}/")
+    save_daily(export_hits_transactions, 
+            job_date, 
+            f"./aggregated/ga/daily/type=transactions/year={job_year}/month={job_month}/day={job_day}/")
+    save_daily(export_hits_items, 
+            job_date, 
+            f"./aggregated/ga/daily/type=items/year={job_year}/month={job_month}/day={job_day}/")
+
+def main():
+    # provide job date as env variable to run the job - format YYYY-mm-dd
+    JOB_DATE = os.getenv("JOB_DATE")
+    try:
+        program(JOB_DATE)
+        return "success"
+    except Exception as e:
+        print(e)
+        # TODO: spark job failed send sns message
+        return "error"
+     
+if __name__ == "__main__":
+    main()
 
 # measuring runtime of the script
 time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 

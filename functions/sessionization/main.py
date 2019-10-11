@@ -1,4 +1,5 @@
 from pyspark.sql import SparkSession
+from pyspark.context import SparkContext
 from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
 from pyspark.sql import functions as f
 from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp, current_date, date_sub, desc, date_add, udf
@@ -21,11 +22,6 @@ pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 def show_partition_id(df, col):
     return df.select(col, spark_partition_id().alias("partition_id")).show(1000, True)
 
-# start measuring runtime of the job
-tsfm = "%Y-%m-%d %H:%M:%S"
-time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
-job_start = datetime.strptime(time_start, tsfm) 
-print("Job Start Time: ", job_start)
 
 
 # constants
@@ -75,13 +71,22 @@ def load_session(spark, path, file_format, schema):
         print(e)
         return spark.createDataFrame([], schema)
 
-def partial_pipe(url: str, fn):
+def partial_pipe_page_path(main_fn, url: str):
+    return pipe([
+            parse_url,
+            path_is_empty,
+            extract_path_value,
+            split_path,
+            main_fn,
+            ]) (url)
+
+def partial_pipe_udf(main_fn, url: str):
     return pipe([
             parse_url,
             query_is_empty,
             extract_query_value,
             split_query,
-            fn,
+            main_fn,
             ]) (url)
 
 def parse_url(url: str) -> tuple:
@@ -113,7 +118,7 @@ def construct_levels(p: list):
         return ['', '', '', '']
     
 def parse_page_path(url: str) -> str:
-    return partial_pipe(url, construct_levels)
+    return partial_pipe_page_path(construct_levels, url)
 
 ## start renaming the column body_t according to GA360
 def hits_type(t: str) -> str:
@@ -254,7 +259,7 @@ def identify_channel(channel_list: list, qr: str):
         return '(not set)' 
 
 def parse_dl_source(url):
-    return partial_pipe(url, partial(identify_channel, channels))
+    return partial_pipe_udf(partial(identify_channel, channels), url)
 
 def split_hostname(body_dr: str) -> str:
     hostname = parse_url(body_dr).netloc
@@ -311,7 +316,7 @@ def identify_campaign(qr: dict):
     return qr['utm_campaign'] if 'utm_campaign' in qr else '(not set)'
 
 def parse_source_campaign(url):
-    return partial_pipe(url, identify_campaign)
+    return partial_pipe_udf(identify_campaign, url)
 
 def parse_dr_campaign(body_dl: str):
     empty_query = len(query_is_empty(parse_url(body_dl))) == 0
@@ -343,7 +348,7 @@ def identify_medium(qr: dict):
         return '(none)'
 
 def parse_source_medium(url: str):
-    return partial_pipe(url, identify_medium)
+    return partial_pipe_udf(identify_medium, url)
 
 search_engines = [
         'google', 
@@ -404,7 +409,7 @@ def identify_keyword(qr: dict):
         return '(not set)'
 
 def parse_source_keyword(url: str):
-    return partial_pipe(url, identify_keyword)
+    return partial_pipe_udf(identify_keyword, url)
 
 def parse_dr_keyword(body_dr: str, body_dl: str):
     hostname = body_dr.split('//')[-1].split('/')[0].split('.')[1]
@@ -433,7 +438,7 @@ def identify_ad_content(qr: dict):
         return '(not set)'
 
 def parse_source_ad_content(url: str):
-    return partial_pipe(url, identify_ad_content)
+    return partial_pipe_udf(identify_ad_content, url)
 
 def extract_source_ad_content(is_new_session, body_dl, body_dr):
     if (is_new_session == 1 and body_dr is None):
@@ -924,9 +929,8 @@ def save_daily(df, JOB_DATE, path, *drop):
         .save(path)
 
 
-def program(job_date):
+def pipeline(spark, job_date, s3_bucket=None):
     job_day, job_month, job_year = split_date(job_date)
-    spark = spark_context()
     df = read_data(spark, PATH)
     df = df.rdd.map(lambda row: validate_fields(row)).toDF(static_schema)
     session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
@@ -1079,23 +1083,47 @@ def program(job_date):
             job_date, 
             f"./aggregated/ga/daily/type=items/year={job_year}/month={job_month}/day={job_day}/")
 
+def glue(sc):
+    from awsglue.context import GlueContext
+    from awsglue.utils import getResolvedOptions
+    args = getResolvedOptions(sys.argv, ["s3bucket"])
+    s3_bucket = "s3a://" + args["s3bucket"]
+    return (s3_bucket, GlueContext(sc))
+
 def main():
     # provide job date as env variable to run the job - format YYYY-mm-dd
     JOB_DATE = os.getenv("JOB_DATE")
+    ENVIRONMENT = os.getenv("ENVIRONMENT")
     try:
-        program(JOB_DATE)
-        return "success"
+        if ENVIRONMENT == "production":
+            sc = SparkContext.getOrCreate() 
+            glue_context = glue(sc)
+            spark = glue_context.spark_session
+            pipeline(spark, JOB_DATE, s3_bucket)
+            return "success"
+        elif ENVIRONMENT == "development":
+            spark = spark_context()
+            pipeline(spark, JOB_DATE)
+            return "success"
+        else:
+            raise Exception("Need to provide environemnt variable to run the job")
     except Exception as e:
-        print(e)
+        print("Something went wrong", e)
         # TODO: spark job failed send sns message
         return "error"
      
 if __name__ == "__main__":
+    # start measuring runtime of the job
+    tsfm = "%Y-%m-%d %H:%M:%S"
+    time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+    job_start = datetime.strptime(time_start, tsfm) 
+    print("Job Start Time: ", job_start)
+
     main()
 
-# measuring runtime of the script
-time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
-job_end = datetime.strptime(time_end, tsfm) 
-print("End time: ", job_end)
-print("Running time: ", (job_end - job_start).seconds, " seconds")
+    # measuring runtime of the script
+    time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
+    job_end = datetime.strptime(time_end, tsfm) 
+    print("End time: ", job_end)
+    print("Running time: ", (job_end - job_start).seconds, " seconds")
 

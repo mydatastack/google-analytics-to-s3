@@ -24,14 +24,11 @@ def show_partition_id(df, col):
 
 
 
-# constants
-SESSION_HISTORY_PATH = "./aggregated/ga/history/sessions"
-PATH = "./samples/ecommerce-basic/*"
 
 # splitting the date into partitions 
 def split_date(JOB_DATE: str) -> tuple:
     job_date = datetime.strptime(JOB_DATE, "%Y-%m-%d").date()
-    return (job_date.strftime("%d"), job_date.strftime("%m"), job_date.strftime("%Y"))
+    return (job_date.strftime("%Y"), job_date.strftime("%m"), job_date.strftime("%d"))
 
 
 def spark_context():
@@ -929,11 +926,10 @@ def save_daily(df, JOB_DATE, path, *drop):
         .save(path)
 
 
-def pipeline(spark, job_date, s3_bucket=None):
-    job_day, job_month, job_year = split_date(job_date)
-    df = read_data(spark, PATH)
+def pipeline(spark, df, session_history, job_date):
+    job_year, job_month, job_day = split_date(job_date)
     df = df.rdd.map(lambda row: validate_fields(row)).toDF(static_schema)
-    session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
+    #session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
     df = rename_hits_type(df, hits_type)
     sessions = add_user_session_id(spark, df)
     sessions = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
@@ -1048,6 +1044,7 @@ def pipeline(spark, job_date, s3_bucket=None):
                 "touchpoints_wo_direct", 
                 "first_touchpoint", 
                 "last_touchpoint")
+
     export_multichannel_sessions = calculate_touchpoints(unioned_dropped)
 
     export_hits_pageviews = export_hits_pageviews_table(spark)
@@ -1060,70 +1057,101 @@ def pipeline(spark, job_date, s3_bucket=None):
 
     export_hits_items = export_hits_items_table(spark) 
 
-    save_history(export_multichannel_sessions, job_date, SESSION_HISTORY_PATH)
+    return (export_multichannel_sessions,
+            export_hits_pageviews,
+            export_hits_events,
+            export_hits_products,
+            export_hits_transactions,
+            export_hits_items)
 
-    save_daily(export_multichannel_sessions, 
-            job_date, 
-            f"./aggregated/ga/daily/type=sessions/year={job_year}/month={job_month}/day={job_day}/",
-            "touchpoints",
-            "touchpoints_wo_direct")
-    save_daily(export_hits_pageviews, 
-            job_date, 
-            f"./aggregated/ga/daily/type=pageviews/year={job_year}/month={job_month}/day={job_day}/")
-    save_daily(export_hits_events, 
-            job_date, 
-            f"./aggregated/ga/daily/type=events/year={job_year}/month={job_month}/day={job_day}/")
-    save_daily(export_hits_products, 
-            job_date, 
-            f"./aggregated/ga/daily/type=products/year={job_year}/month={job_month}/day={job_day}/")
-    save_daily(export_hits_transactions, 
-            job_date, 
-            f"./aggregated/ga/daily/type=transactions/year={job_year}/month={job_month}/day={job_day}/")
-    save_daily(export_hits_items, 
-            job_date, 
-            f"./aggregated/ga/daily/type=items/year={job_year}/month={job_month}/day={job_day}/")
+
 
 def glue(sc):
     from awsglue.context import GlueContext
     from awsglue.utils import getResolvedOptions
-    args = getResolvedOptions(sys.argv, ["s3bucket"])
-    s3_bucket = "s3a://" + args["s3bucket"]
-    return (s3_bucket, GlueContext(sc))
+    args = getResolvedOptions(sys.argv, [
+            "s3bucket", 
+            "year_partition",
+            "month_partition"
+            "day_partition"
+            ])
+    s3_bucket = args["s3bucket"]
+    year_partition = args["year_partition"]
+    month_partition = args["month_partition"]
+    day_partition = args["day_partition"]
+    return (s3_bucket, year_partition, month_partition, day_partition, GlueContext(sc))
+
+def load_data(spark, path):
+    return spark.read.format("json")\
+            .option("mode", "FAILFAST")\
+            .option("inferSchema", "false")\
+            .option("path", path)\
+            .load()
 
 def main():
-    # provide job date as env variable to run the job - format YYYY-mm-dd
-    JOB_DATE = os.getenv("JOB_DATE")
     ENVIRONMENT = os.getenv("ENVIRONMENT")
     try:
-        if ENVIRONMENT == "production":
+        if ENVIRONMENT == "development":
             sc = SparkContext.getOrCreate() 
-            glue_context = glue(sc)
+            s3_bucket, year_partition, month_partition, day_partition, glue_context = glue(sc)
             spark = glue_context.spark_session
-            pipeline(spark, JOB_DATE, s3_bucket)
+            load_path = f"s3n://{s3_bucket}/enrichted/year={year_partition}/month={month_partition}/day={day_partition}/*" 
+            session_path = f"s3n://{s3_bucket}/aggregated/history/sessions"
+            df = load_data(spark, load_path)
+            sessions_df = load_session(spark, session_path, "parquet", session_schema)
+            job_date = f"{year_partition}-{month_partition}-{day_partition}"
+            save_path = "/aggregated/ga/daily"
+            export_multichannel_sessions,export_hits_pageviews, export_hits_events, export_hits_products, export_hits_transactions, export_hits_items = pipeline(spark, df, sessions_df, job_date)
             return "success"
-        elif ENVIRONMENT == "development":
+
+        elif ENVIRONMENT == "local":
+            year_partition = os.getenv("year_partition") 
+            month_partition = os.getenv("month_partition") 
+            day_partition = os.getenv("day_partition") 
+            job_date = f"{year_partition}-{month_partition}-{day_partition}"
             spark = spark_context()
-            pipeline(spark, JOB_DATE)
+            session_path = "./aggregated/ga/history/sessions"
+            load_path = "./samples/ecommerce-basic/*"
+            partition_path = f"year={year_partition}/month={month_partition}/day={day_partition}"
+            df = load_data(spark, load_path)
+            sessions_df = load_session(spark, session_path, "parquet", session_schema)
+            export_multichannel_sessions, export_hits_pageviews, export_hits_events, export_hits_products, export_hits_transactions, export_hits_items = pipeline(spark, df, sessions_df, job_date)
+            save_history(export_multichannel_sessions, job_date, session_path)
+
+            save_daily(export_multichannel_sessions, 
+                    job_date, 
+                    f"./aggregated/ga/daily/type=sessions/{partition_path}/",
+                    "touchpoints",
+                    "touchpoints_wo_direct")
+            save_daily(export_hits_pageviews, 
+                    job_date, 
+                    f"./aggregated/ga/daily/type=pageviews/{partition_path}/")
+
+            save_daily(export_hits_events, 
+                    job_date, 
+                    f"./aggregated/ga/daily/type=events/{partition_path}/")
+
+            save_daily(export_hits_products, 
+                    job_date, 
+                    f"./aggregated/ga/daily/type=products/{partition_path}/")
+
+            save_daily(export_hits_transactions, 
+                    job_date, 
+                    f"./aggregated/ga/daily/type=transactions/{partition_path}/")
+
+            save_daily(export_hits_items, 
+                    job_date, 
+                    f"./aggregated/ga/daily/type=items/{partition_path}/")
             return "success"
+
         else:
-            raise Exception("Need to provide environemnt variable to run the job")
+            raise Exception("Need to provide environment variables to run the job")
+
     except Exception as e:
         print("Something went wrong", e)
-        # TODO: spark job failed send sns message
         return "error"
      
 if __name__ == "__main__":
-    # start measuring runtime of the job
-    tsfm = "%Y-%m-%d %H:%M:%S"
-    time_start = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
-    job_start = datetime.strptime(time_start, tsfm) 
-    print("Job Start Time: ", job_start)
-
     main()
 
-    # measuring runtime of the script
-    time_end = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
-    job_end = datetime.strptime(time_end, tsfm) 
-    print("End time: ", job_end)
-    print("Running time: ", (job_end - job_start).seconds, " seconds")
 

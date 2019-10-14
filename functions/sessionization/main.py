@@ -929,7 +929,6 @@ def save_daily(df, JOB_DATE, path, *drop):
 def pipeline(spark, df, session_history, job_date):
     job_year, job_month, job_day = split_date(job_date)
     df = df.rdd.map(lambda row: validate_fields(row)).toDF(static_schema)
-    #session_history = load_session(spark, SESSION_HISTORY_PATH, "parquet", session_schema)
     df = rename_hits_type(df, hits_type)
     sessions = add_user_session_id(spark, df)
     sessions = sessions.filter(~sessions['body_t'].isin(['adtiming', 'timing']))
@@ -1063,8 +1062,6 @@ def pipeline(spark, df, session_history, job_date):
             export_hits_products,
             export_hits_transactions,
             export_hits_items)
-
-
 
 def glue(sc):
     from awsglue.context import GlueContext

@@ -1,0 +1,6 @@
+DEV_ENDPOINT=glue@ec2-18-197-43-176.eu-central-1.compute.amazonaws.com
+scp ../main.py $DEV_ENDPOINT:/home/glue/main.py
+scp ../schemas.py $DEV_ENDPOINT:/home/glue/schemas.py
+scp ../columns.py $DEV_ENDPOINT:/home/glue/columns.py
+
+ssh -i ~/.ssh/tarasowski $DEV_ENDPOINT 'bash -s' < setup-endpoint 

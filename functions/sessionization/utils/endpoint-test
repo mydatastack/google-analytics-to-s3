@@ -1,3 +1,0 @@
-DEV_ENDPOINT=glue@ec2-18-185-114-134.eu-central-1.compute.amazonaws.com
-scp ../main.py $DEV_ENDPOINT:/home/glue/main.py
-ssh -i ~/.ssh/tarasowski $DEV_ENDPOINT gluepython main.py ENVIRONMENT=development --s3bucket tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1 --year_partition 2019 --month_partition 09 --day_partition 20

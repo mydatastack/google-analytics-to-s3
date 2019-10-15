@@ -1,0 +1,5 @@
+#!/bin/bash
+echo "Setting up the right python version"
+export PYSPARK_PYTHON=python3.6
+echo "Starting spark script"
+ENVIRONMENT=development gluepython3 main.py --s3bucket tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1 --year_partition 2019 --month_partition 09 --day_partition 24

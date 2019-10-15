@@ -18,6 +18,26 @@ Parameters:
   S3AlarmPeriod:
     Type: String
     Default: 60
+  EnableSFTPUpload:
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  EnableGlueTrigger:
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+  EnableMonitoring:
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+
+Conditions:
+  SFTPUploadActivate: 
+    Fn::Equals: [true, Ref: EnableSFTPUpload]
+  GlueTriggerActive: 
+    Fn::Equals: [true, Ref: EnableGlueTrigger]
+  MonitoringActive: 
+    Fn::Equals: [true, Ref: EnableMonitoring]
 
 Resources:
 
@@ -318,23 +338,6 @@ Resources:
       StageName: 
         Fn::Sub: ${Stage}
 
-  GoogleAnalyticsCollectorMonitoring:
-    Type: AWS::Serverless::Application
-    Properties:
-      Location: ./collector-ga-monitoring.yaml
-      Parameters:
-        Name:
-          Ref: Name
-        Stage:
-          Ref: Stage
-        AdminEmail:
-          Ref: AdminEmail
-        FallbackEmail:
-          Ref: FallbackEmail
-        S3AlarmPeriod:
-          Ref: S3AlarmPeriod
-        BucketEventsTopic:
-          Ref: BucketEventsTopic
 
   GlueJobRole:
     Type: AWS::IAM::Role
@@ -391,22 +394,24 @@ Resources:
   GlueJob:
     Type: AWS::Glue::Job
     Properties:
+      GlueVersion: 1.0
       DefaultArguments:
         "--s3bucket": 
           Ref: DataBucket
       MaxCapacity: 2
       Command:
         Name: glueetl
-        ScriptLocation: ../functions/sessionization/gluespark.py
+        ScriptLocation: ../functions/sessionization/main.py
       ExecutionProperty:
         MaxConcurrentRuns: 2
       MaxRetries: 0
-      Name: cf-gaglue-job
+      Name: PipesGAJob 
       Role:
         Ref: GlueJobRole
         #Tags: '[{"Key": "Activity", "Value": "GAGlueJob"}]'
 
   GlueTrigger:
+    Condition: GlueTriggerActive
     Type: AWS::Glue::Trigger
     Properties:
       Type: "SCHEDULED" 
@@ -418,6 +423,7 @@ Resources:
             Ref: GlueJob
 
   SFTPLayer:
+    Condition: SFTPUploadActivate
     Type: AWS::Serverless::LayerVersion
     Properties:
       LayerName: paramiko
@@ -429,6 +435,7 @@ Resources:
       RetentionPolicy: Retain
 
   SFTPLayerPermission:
+    Condition: SFTPUploadActivate
     Type: AWS::Lambda::LayerVersionPermission
     DeletionPolicy: Retain
     Properties:
@@ -439,6 +446,7 @@ Resources:
         Ref: AWS::AccountId
 
   SFTPFunction:
+    Condition: SFTPUploadActivate
     Type: AWS::Serverless::Function
     Properties:
       Runtime: python3.7
@@ -486,10 +494,10 @@ Resources:
                 - "ssm:GetParameters"
                 - "ssm:GetParametersByPath"
               Resource:
-                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_host"
-                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_key_password"
-                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_ssh_key"
-                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/odoscope_username"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/company_host"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/company_key_password"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/company_ssh_key"
+                - Fn::Sub: "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/company_username"
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -499,6 +507,7 @@ Resources:
                 - Fn::GetAtt: [UploadStatusTable, Arn]
 
   UploadStatusTable:
+    Condition: SFTPUploadActivate
     Type: AWS::DynamoDB::Table
     Description: Keeps information about sucessfully uploaded files
     Properties:
@@ -515,6 +524,25 @@ Resources:
         - AttributeName: uploaded_at
           KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
+
+  GoogleAnalyticsCollectorMonitoring:
+    Condition: MonitoringActive
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: ./collector-ga-monitoring.yaml
+      Parameters:
+        Name:
+          Ref: Name
+        Stage:
+          Ref: Stage
+        AdminEmail:
+          Ref: AdminEmail
+        FallbackEmail:
+          Ref: FallbackEmail
+        S3AlarmPeriod:
+          Ref: S3AlarmPeriod
+        BucketEventsTopic:
+          Ref: BucketEventsTopic
 
 Outputs:
   CollectorEndpoint:

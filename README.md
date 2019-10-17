@@ -1,7 +1,14 @@
-# Google Analytics Duplicator
-You can automatically duplicate Google Analytics hits to Pipes. You can do it with the help of Google Tag Manager. Below you'll find a step by step instruction. 
+# Google Analytics To S3 
+This piece of software automatically duplicates Google Analytics hits to S3.
+Additionally, it does ETL on the incoming raw data. It transforms the raw Google Analytics data to the
+BigQuery export schema format.
 
 ---
+
+## Basic Architecture Overview
+
+![architecture](./example/architecture/ga-to-s3-architecture.png)
+
 1. Step: Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
 
 ```js

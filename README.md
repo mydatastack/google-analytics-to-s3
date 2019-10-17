@@ -1,7 +1,8 @@
 # Google Analytics To S3 
-This piece of software automatically duplicates Google Analytics hits to S3.
-Additionally, it does ETL on the incoming raw data. It transforms the raw Google Analytics data to the
-BigQuery export schema format.
+The software automatically duplicates Google Analytics hits to S3.
+Additionally, it does ETL (e.g. sessionization, partitioning) on the incoming raw data. Also, the ETL process transforms the raw Google Analytics data to the
+BigQuery export schema format. You can query and visualize the data with Amazon
+Athena. 
 
 ## Architectural Overview
 

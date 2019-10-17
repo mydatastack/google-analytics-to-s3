@@ -16,7 +16,7 @@ Athena.
    City](https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz)
 unzip it and place it into the `mmdb` directory. Install the dependencies.
 
-3. Run `make create_bucket`. This command will create an S3 bucket for Cloudformation
+3. Run `cd .. && cd .. && make create_bucket`. This command will create an S3 bucket for Cloudformation
    artifacts.
 
 4. Run `make deploy`. This command is going to deploy the Cloudformation stack.

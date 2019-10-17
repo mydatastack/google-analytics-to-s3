@@ -1116,6 +1116,7 @@ def export_hits_transactions_table(spark):
                 hits_hitNumber,
                 hits_time,
                 hits_hour,
+                hits_minute,
                 hits_transation_transactionCoupon,
                 hits_transaction_transactionId,
                 hits_transaction_transactionRevenue,
@@ -1138,6 +1139,7 @@ def export_hits_items_table(spark):
                 hits_hitNumber,
                 hits_time,
                 hits_hour,
+                hits_minute,
                 hits_item_transactionId,
                 hits_item_productName, 
                 hits_item_itemRevenue,
@@ -1331,9 +1333,9 @@ def save_daily_dfs(df, path):
 
 
 def main():
-    ENVIRONMENT = os.getenv("ENVIRONMENT") or "development"
+    ENVIRONMENT = os.getenv("ENVIRONMENT") or "production"
     try:
-        if ENVIRONMENT == "development":
+        if ENVIRONMENT == "production":
             sc = SparkContext.getOrCreate() 
             s3_bucket, year_partition, month_partition, day_partition, glue_context = glue(sc)
             config = {"s3_bucket": s3_bucket, "year_partition": year_partition, "month_partition": month_partition, "day_partition": day_partition}

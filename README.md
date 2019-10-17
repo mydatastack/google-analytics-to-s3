@@ -3,13 +3,13 @@ This piece of software automatically duplicates Google Analytics hits to S3.
 Additionally, it does ETL on the incoming raw data. It transforms the raw Google Analytics data to the
 BigQuery export schema format.
 
-## Basic Architecture Overview
+## Architectural Overview
 
 ![architecture](./example/architecture/ga-to-s3-architecture.png)
 
 ## Setup
 
-1. Run `git clone` this repository and `cd` into the directory.
+1. Run `git clone` the repository and `cd` into the directory.
 
 2. Run `make create_bucket`. This command will create an S3 bucket for Cloudformation
    artifacts.

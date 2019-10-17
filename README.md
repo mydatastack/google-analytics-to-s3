@@ -57,7 +57,12 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 
 ![gtm pipes](./example/readme/gtm-pipes.png)
 
-7. Step: Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
+7. Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
+
+8. After you did all the steps and the data has been collected and transformed.
+   You can query the data e.g. via AWS Athena.
+
+![athena](./example/readme/end-result.png)
 
 ---
 

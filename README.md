@@ -10,14 +10,18 @@ Athena.
 
 ## Setup
 
-1. Run `git clone` the repository and `cd` into the directory.
+1. Run `git clone` and `cd` into the directory.
 
-2. Run `make create_bucket`. This command will create an S3 bucket for Cloudformation
+2. `cd functions/enrichment/`. Download [GeoLite2
+   City](https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz)
+unzip it and place it into the `mmdb` directory. Install the dependencies.
+
+3. Run `make create_bucket`. This command will create an S3 bucket for Cloudformation
    artifacts.
 
-3. Run `make deploy`. This command is going to deploy the Cloudformation stack.
+4. Run `make deploy`. This command is going to deploy the Cloudformation stack.
 
-4. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
+5. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
 
 ```js
 function() {
@@ -49,11 +53,11 @@ function() {
 you can find in Cloudformation under the deployed Google Analytics Nested Stack
 [more](#additional-information)
 
-5. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
+6. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
 
 ![gtm pipes](./example/readme/gtm-pipes.png)
 
-6. Step: Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
+7. Step: Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
 
 ---
 

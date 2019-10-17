@@ -61,7 +61,7 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 
 8. Once the data has been collected and transformed. You can query the data e.g. via AWS Athena.
 
-![athena](./example/readme/end-result.png)
+![athena](./example/readme/end-result-small.png)
 
 ---
 

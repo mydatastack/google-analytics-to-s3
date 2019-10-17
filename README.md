@@ -3,13 +3,20 @@ This piece of software automatically duplicates Google Analytics hits to S3.
 Additionally, it does ETL on the incoming raw data. It transforms the raw Google Analytics data to the
 BigQuery export schema format.
 
----
-
 ## Basic Architecture Overview
 
 ![architecture](./example/architecture/ga-to-s3-architecture.png)
 
-1. Step: Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
+## Setup
+
+1. Run `git clone` this repository and `cd` into directory.
+
+2. Run `make create_bucket`. This command will create an s3 bucket for Cloudformation
+   artifacts.
+
+3. Run `make deploy`. This command is going to deploy the Cloudformation stack.
+
+4. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
 
 ```js
 function() {
@@ -43,7 +50,7 @@ you can find in Cloudformation under the deployed Google Analytics Nested Stack
 
 ---
 
-2. Step: Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
+5. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
 
 ![gtm pipes](./example/readme/gtm-pipes.png)
 

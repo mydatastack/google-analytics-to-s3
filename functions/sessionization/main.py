@@ -5,23 +5,285 @@ from pyspark.sql.functions import first, col, expr, when, reverse, spark_partiti
 from pyspark.sql.window import Window
 from pyspark.sql import Row
 from pyspark.sql.window import Window
-from schemas import session_schema, static_schema, static_required_fields, enhanced_ecom_schema
 from datetime import datetime, timedelta
-from columns import columns_to_drop
 import urllib.parse as urlparse
 from functools import partial, reduce
 import sys
 import re
 import os
 
-# helper function for the pipelines
 pipe = lambda fns: lambda x: reduce(lambda v, f: f(v), fns, x)
 
-# inspecting partitions
+# Start of column definition 
+columns_to_drop = [
+        'body__cbt',
+        'body__cst',
+        'body__gbt',
+        'body__gst',
+        'body__r',
+        'body__s',
+        'body__u',
+        'body__utma',
+        'body__utmht',
+        'body__utmz',
+        'body__v',
+        'body_a',
+        'body_clt',
+        'body_dit',
+        'body_dns',
+        'body_gjid',
+        'body_gtm',
+        'body_jid', # needed for linking data between doubleclick and ga
+        'body_pdt', # page download times
+        'body_plt', # page load times
+        'body_rrt', # redirect response time
+        'body_srt', # server response time
+        'body_tcp', # tcp connect time
+        ]
+
+required_columns = [
+        "body_el",
+        "body_ev",
+        "body_pa",
+        "body_tcc",
+        "body_ti",
+        "body_tr",
+        "body_ts",
+        "body_tt",
+        "body_in",
+        "body_uid",
+        "body_ip",
+        "body_dr",
+        "body_fl",
+        "body_je",
+        "body_ul",
+        "body_sd",
+        "body_sr",
+        "body_ec",
+        "body_ea",
+        "body_ni",
+        "body_col",
+        "body_cos",
+        "body_tcc",
+        "body_ti",
+        "body_tr",
+        "body_tt",
+        "body_cu",
+        "body_ti",
+        "body_in",
+        "body_ip",
+        "body_iq",
+        "body_ic",
+        "body_iv",
+        "body_cu",
+        ]
+
+# End of column definition
+
+# Start of schema definition
+session_schema = StructType([
+        StructField("fullVisitorId", StringType(), True),
+        StructField("visitId", StringType(), True),
+        StructField("userId", StringType(), True),
+        StructField("visitNumber", IntegerType(), True), 
+        StructField("visitStartTime", LongType(), True), 
+        StructField("date", IntegerType(), True),
+        StructField("timestamp", TimestampType(), True),
+        StructField("trafficSource_campaign", StringType(), True),
+        StructField("trafficSource_source", StringType(), True), 
+        StructField("trafficSource_medium", StringType(), True),
+        StructField("trafficSource_keyword", StringType(), True),
+        StructField("trafficSource_ad_content", StringType(), True),
+        StructField("geoNetwork_continent", StringType(), True),
+        StructField("geoNetwork_subContinent", StringType(), True),
+        StructField("geoNetwork_country", StringType(), True),
+        StructField("geoNetwork_region", StringType(), True),
+        StructField("geoNetwork_metro", StringType(), True),
+        StructField("geoNetwork_city", StringType(), True),
+        StructField("geoNetwork_cityId", IntegerType(), True),
+        StructField("geoNetwork_networkDomain", StringType(), True),
+        StructField("geoNetwork_latitude", DoubleType(), True),
+        StructField("geoNetwork_longitude", DoubleType(), True),
+        StructField("geoNetwork_networkLocation", StringType(), True),
+        StructField("device_browser", StringType(), True),
+        StructField("device_browserVersion", DoubleType(), True),
+        StructField("device_browserSize", StringType(), True),
+        StructField("device_operatingSystem", StringType(), True),
+        StructField("device_operatingSystemVersion", StringType(), True),
+        StructField("device_isMobile", BooleanType(), True),
+        StructField("device_mobileDeviceBranding", StringType(), True),
+        StructField("device_mobileDeviceModel", StringType(), True), 
+        StructField("device_mobileInputSelector", StringType(), True),
+        StructField("device_mobileDeviceInfo", StringType(), True),
+        StructField("device_mobileDeviceMarketingName", StringType(), True),
+        StructField("device_flashVersion", IntegerType(), True),
+        StructField("device_javaEnabled", StringType(), True),
+        StructField("device_language", StringType(), True),
+        StructField("device_screenColors", StringType(), True),
+        StructField("device_screenResolution", StringType(), True),
+        StructField("device_deviceCategory", StringType(), True),
+        StructField("totals_transactionRevenue", StringType(), True),
+        StructField("landingPage", StringType(), True),
+        StructField("hits_type", StringType(), True),
+        StructField("touchpoints", ArrayType(StringType()), True),
+        StructField("touchpoints_wo_direct", ArrayType(StringType()), True),
+        StructField("first_touchpoint", StringType(), True),
+        StructField("last_touchpoint", StringType(), True)
+        ])
+
+ga_fields = { 
+        "body_v", # protocol version
+        "body_tid", # tracking id / web property id
+        "body_aip", # anonymize ip
+        "body_ds", # data source
+        "body_cid", # client id
+        "body_uid", # user id
+        "body_dr", # document referrer
+        "body_cn", # campaign name
+        "body_cs", # campaing source
+        "body_cm", # campaign medium
+        "body_ck", # campaign keyword
+        "body_cc", # campaign content
+        "body_ci", # campaign id
+        "body_gclid", # google ads id
+        "body_dclid", # google display ads id
+        "body_sr", # screen resolution
+        "body_vp", # viewport size
+        "body_de", # document ecncoding
+        "body_sd", # screen colors 
+        "body_ul", # user language
+        "body_je", # java enabled
+        "body_fl", # flash version 
+        "body_t", # hit type
+        "body_ni", # non-interaction hit
+        "body_dl", # document location url
+        "body_dh", # document host name
+        "body_dp", # document path
+        "body_dt", # document title
+        "body_cd", # screen name
+        "body_an", # application name
+        "body_aid", # application id
+        "body_av", # application version
+        "body_aiid", # application installer id
+        "body_ec", # event category
+        "body_ea", # event action
+        "body_el", # event label
+        "body_ev", # event value
+        "body_ti", # transaction id
+        "body_ta", # transaction affiliation
+        "body_tr", # transaction revenue
+        "body_ts", # transaction shipping
+        "body_tt", # transaction tax
+        "body_in", # item name
+        "body_ip", # item price
+        "body_iq", # item quantity
+        "body_ic", # item code
+        "body_iv", # item category
+        "body_tcc", # coupon code
+        "body_pal", # product action list
+        "body_cos", # checkout step
+        "body_col", # checkout step option
+        "body_cu", # currency code
+        "body_pa", # product action
+        } 
+
+geo_fields = {
+        'geo_metro', 
+        'geo_city', 
+        'geo_network_domain',
+        'geo_continent_code', 
+        'geo_longitude', 
+        'geo_latitude', 
+        'geo_country_iso', 
+        'geo_postal_code', 
+        'geo_sub_continent', 
+        'geo_country', 
+        'geo_network_location', 
+        'geo_continent', 
+        'geo_city_id', 
+        'geo_timezone', 
+        'geo_region' 
+        }
+
+device_fields = {
+        'device_device_name', 
+        'device_os_version', 
+        'device_device_brand', 
+        'device_os_name', 
+        'device_is_bot', 
+        'device_device_info', 
+        'device_device_input', 
+        'device_client_version', 
+        'device_device_model', 
+        'device_client_name', 
+        'device_is_mobile', 
+        'device_device_type' 
+        }
+
+api_gateway_fields = {
+        'trace_id', 
+        'system_source', 
+        'message_id', 
+        'ip', 
+        'received_at_apig', 
+        'user_agent', 
+        'system_version', 
+        }
+
+def enhanced_ecom(param):
+    return set(["body_pr{x}{param}".format(param=param, x=x) for x in range(20)])
+
+def custom_dim_metrics(param):
+    return set(["body_{param}{x}".format(param=param, x=x) for x in range(10)])
+
+
+static_required_fields = set()\
+            .union(ga_fields)\
+            .union(geo_fields)\
+            .union(device_fields)\
+            .union(api_gateway_fields)\
+            .union(enhanced_ecom("id"))\
+            .union(enhanced_ecom("nm"))\
+            .union(enhanced_ecom("br"))\
+            .union(enhanced_ecom("ca"))\
+            .union(enhanced_ecom("va"))\
+            .union(enhanced_ecom("pr"))\
+            .union(enhanced_ecom("qt"))\
+            .union(enhanced_ecom("cc"))\
+            .union(custom_dim_metrics("cd"))\
+            .union(custom_dim_metrics("cm"))\
+
+def field_types(field):
+    if field == "device_is_bot":
+        return StructField(field, BooleanType(), True)
+    elif field == "device_is_mobile":
+        return StructField(field, BooleanType(), True)
+    elif field == "geo_latitude" or field == "geo_longitude":
+        return StructField(field, DoubleType(), True)
+    else:
+        return StructField(field, StringType(), True)
+
+def field_constructor(fields: set):
+    return [field_types(field) for field in fields]
+
+static_schema = StructType(field_constructor(static_required_fields)) 
+
+enhanced_ecom_schema = StructType([
+        StructField('ms_id', StringType()),
+        StructField('prca', StringType()),
+        StructField('prcc', StringType()),
+        StructField('prid', StringType()),
+        StructField('prnm', StringType()),
+        StructField('prpr', StringType()),
+        StructField('prqt', StringType()),
+        StructField('prva', StringType())
+        ])
+
+# End of schema definition
+
 def show_partition_id(df, col):
     return df.select(col, spark_partition_id().alias("partition_id")).show(1000, True)
 
-# splitting the date into partitions 
 def split_date(JOB_DATE):
     job_date = datetime.strptime(JOB_DATE, "%Y-%m-%d").date()
     return (job_date.strftime("%Y"), job_date.strftime("%m"), job_date.strftime("%d"))
@@ -30,10 +292,9 @@ def split_date(JOB_DATE):
 def spark_context():
     spark = SparkSession\
         .builder\
-        .appName("Python Spark SQL basic example")\
+        .appName("Pipes GA Duplicator")\
         .getOrCreate()
 
-    spark.conf.set('spark.driver.memory', '6g')
     spark.conf.set('spark.sql.session.timeZone', 'Europe/Berlin')
     return spark
 
@@ -49,8 +310,9 @@ def validate_fields(row, required_fields=static_required_fields):
     available_fields = set(fields)
     na_fields = required_fields - available_fields 
     dct = dict.fromkeys(na_fields, None)
-    merged = {**fields, **dct}
-    return Row(**merged)
+    c_fields = fields.copy()
+    c_fields.update(dct)
+    return Row(**c_fields)
 
 def load_session(spark, path, file_format, schema):
     try:
@@ -1069,50 +1331,54 @@ def save_daily_dfs(df, path):
 
 
 def main():
-    ENVIRONMENT = os.getenv("ENVIRONMENT")
+    ENVIRONMENT = os.getenv("ENVIRONMENT") or "development"
     try:
         if ENVIRONMENT == "development":
             sc = SparkContext.getOrCreate() 
             s3_bucket, year_partition, month_partition, day_partition, glue_context = glue(sc)
+            config = {"s3_bucket": s3_bucket, "year_partition": year_partition, "month_partition": month_partition, "day_partition": day_partition}
             spark = glue_context.spark_session
-            main_path = f"s3n://{s3_bucket}/aggregated/ga/daily"
-            load_path = f"s3n://{s3_bucket}/enriched/ga/year={year_partition}/month={month_partition}/day={day_partition}/*" 
-            session_path = f"s3n://{s3_bucket}/aggregated/ga/history/sessions/"
-            partition_path = f"year={year_partition}/month={month_partition}/day={day_partition}"
+            main_path = "s3n://{s3_bucket}/aggregated/ga/daily".format(**config)
+            load_path = "s3n://{s3_bucket}/enriched/ga/year={year_partition}/month={month_partition}/day={day_partition}/*".format(**config)
+            session_path = "s3n://{s3_bucket}/aggregated/ga/history/sessions/".format(**config)
+            partition_path = "year={year_partition}/month={month_partition}/day={day_partition}".format(**config)
+            config_path = {"main_path": main_path, "partition_path": partition_path}
             df = load_data(spark, load_path)
             sessions_df = load_session(spark, session_path, "parquet", session_schema)
-            job_date = f"{year_partition}-{month_partition}-{day_partition}"
+            job_date = "{year_partition}-{month_partition}-{day_partition}".format(**config)
             save_path = "/aggregated/ga/daily"
             export_multichannel_sessions,export_hits_pageviews, export_hits_events, export_hits_products, export_hits_transactions, export_hits_items = pipeline(spark, df, sessions_df, job_date)
             save_sessions_df(filter_df(export_multichannel_sessions, job_date), session_path)
-            save_daily_dfs(filter_df(export_multichannel_sessions, job_date), f"{main_path}/type=sessions/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_pageviews, job_date), f"{main_path}/type=pageviews/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_events, job_date), f"{main_path}/type=events/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_products, job_date), f"{main_path}/type=products/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_transactions, job_date), f"{main_path}/type=transactions/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_items, job_date), f"{main_path}/type=items/{partition_path}/")
+            save_daily_dfs(filter_df(export_multichannel_sessions, job_date), "{main_path}/type=sessions/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_pageviews, job_date), "{main_path}/type=pageviews/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_events, job_date), "{main_path}/type=events/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_products, job_date), "{main_path}/type=products/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_transactions, job_date), "{main_path}/type=transactions/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_items, job_date), "{main_path}/type=items/{partition_path}/".format(**config_path))
             return "success"
 
         elif ENVIRONMENT == "local":
             year_partition = os.getenv("year_partition") 
             month_partition = os.getenv("month_partition") 
             day_partition = os.getenv("day_partition") 
-            job_date = f"{year_partition}-{month_partition}-{day_partition}"
+            config = {"year_partition": year_partition, "month_partition": month_partition, "day_partition": day_partition}
+            job_date = "{year_partition}-{month_partition}-{day_partition}".format(**config)
             spark = spark_context()
-            main_path = "./aggregated/ga/daily"
-            session_path = "./aggregated/ga/history/sessions"
-            load_path = "./samples/ecommerce-basic/*"
-            partition_path = f"year={year_partition}/month={month_partition}/day={day_partition}"
+            main_path = "./tests/aggregated/ga/daily"
+            session_path = "./tests/aggregated/ga/history/sessions"
+            load_path = "./tests/ecommerce-basic/enriched/ga/year={year_partition}/month={month_partition}/day={day_partition}".format(**config)
+            partition_path = "year={year_partition}/month={month_partition}/day={day_partition}".format(**config)
             df = load_data(spark, load_path)
+            config_path = {"main_path": main_path, "partition_path": partition_path}
             sessions_df = load_session(spark, session_path, "parquet", session_schema)
             export_multichannel_sessions, export_hits_pageviews, export_hits_events, export_hits_products, export_hits_transactions, export_hits_items = pipeline(spark, df, sessions_df, job_date)
-            save_sessions_df(filter_df(export_multichannel_sessions, job_date), "./aggregated/ga/history/sessions")
-            save_daily_dfs(filter_df(export_multichannel_sessions, job_date), f"{main_path}/type=sessions/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_pageviews, job_date), f"{main_path}/type=pageviews/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_events, job_date), f"{main_path}/type=events/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_products, job_date), f"{main_path}/type=products/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_transactions, job_date), f"{main_path}/type=transactions/{partition_path}/")
-            save_daily_dfs(filter_df(export_hits_items, job_date), f"{main_path}/type=items/{partition_path}/")
+            save_sessions_df(filter_df(export_multichannel_sessions, job_date), "./tests/aggregated/ga/history/sessions")
+            save_daily_dfs(filter_df(export_multichannel_sessions, job_date), "{main_path}/type=sessions/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_pageviews, job_date), "{main_path}/type=pageviews/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_events, job_date), "{main_path}/type=events/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_products, job_date), "{main_path}/type=products/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_transactions, job_date), "{main_path}/type=transactions/{partition_path}/".format(**config_path))
+            save_daily_dfs(filter_df(export_hits_items, job_date), "{main_path}/type=items/{partition_path}/".format(**config_path))
             return "success"
         else:
             raise Exception("Need to provide environment variables to run the job")
@@ -1120,8 +1386,8 @@ def main():
     except Exception as e:
         print("Something went wrong", e)
         return "error"
-     
+
 if __name__ == "__main__":
-    main()
+    main()     
 
 

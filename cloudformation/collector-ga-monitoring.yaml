@@ -114,14 +114,14 @@ Resources:
       TopicArn:
         Ref: AlarmTopic
 
-        #  FallBackEmailSubscription:
-        #    Type: AWS::SNS::Subscription
-        #    Properties:
-        #      Endpoint:
-        #        Ref: FallbackEmail
-        #      Protocol: email
-        #      TopicArn:
-        #        Ref: AlarmTopic
+  FallBackEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: FallbackEmail
+      Protocol: email
+      TopicArn:
+        Ref: AlarmTopic
 
   S3MissingDataAlarm:
     Type: AWS::CloudWatch::Alarm

@@ -1,0 +1,62 @@
+columns_to_drop = [
+        'body__cbt',
+        'body__cst',
+        'body__gbt',
+        'body__gst',
+        'body__r',
+        'body__s',
+        'body__u',
+        'body__utma',
+        'body__utmht',
+        'body__utmz',
+        'body__v',
+        'body_a',
+        'body_clt',
+        'body_dit',
+        'body_dns',
+        'body_gjid',
+        'body_gtm',
+        'body_jid', # needed for linking data between doubleclick and ga
+        'body_pdt', # page download times
+        'body_plt', # page load times
+        'body_rrt', # redirect response time
+        'body_srt', # server response time
+        'body_tcp', # tcp connect time
+        ]
+
+required_columns = [
+        "body_el",
+        "body_ev",
+        "body_pa",
+        "body_tcc",
+        "body_ti",
+        "body_tr",
+        "body_ts",
+        "body_tt",
+        "body_in",
+        "body_uid",
+        "body_ip",
+        "body_dr",
+        "body_fl",
+        "body_je",
+        "body_ul",
+        "body_sd",
+        "body_sr",
+        "body_ec",
+        "body_ea",
+        "body_ni",
+        "body_col",
+        "body_cos",
+        "body_tcc",
+        "body_ti",
+        "body_tr",
+        "body_tt",
+        "body_cu",
+        "body_ti",
+        "body_in",
+        "body_ip",
+        "body_iq",
+        "body_ic",
+        "body_iv",
+        "body_cu",
+        ]

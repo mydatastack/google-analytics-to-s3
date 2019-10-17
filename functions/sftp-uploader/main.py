@@ -14,10 +14,10 @@ s3_client = boto3.client("s3")
 ssm = boto3.client("ssm")
 dynamodb = boto3.resource("dynamodb")
 
-key_password = ssm.get_parameter(Name="odoscope_key_password")["Parameter"]["Value"]
-key_username = ssm.get_parameter(Name="odoscope_username")["Parameter"]["Value"]
-key_hostname = ssm.get_parameter(Name="odoscope_host")["Parameter"]["Value"]
-key_ssh = ssm.get_parameter(Name="odoscope_ssh_key", WithDecryption=True)["Parameter"]["Value"]
+key_password = ssm.get_parameter(Name="company_key_password")["Parameter"]["Value"]
+key_username = ssm.get_parameter(Name="company_username")["Parameter"]["Value"]
+key_hostname = ssm.get_parameter(Name="company_host")["Parameter"]["Value"]
+key_ssh = ssm.get_parameter(Name="company_ssh_key", WithDecryption=True)["Parameter"]["Value"]
 
 yesterday = (datetime.now() - timedelta(1))
 yesterday_year = yesterday.strftime("%Y")
@@ -31,7 +31,7 @@ def get_bucket_url():
     try:
         return os.environ["S3_BUCKET"]
     except KeyError:
-        return "tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1"
+        return ""
 
 def get_table_name():
     try:
@@ -39,7 +39,6 @@ def get_table_name():
     except KeyError:
         return "upload_state"
 
-S3_BUCKET = get_bucket_url()
 date_folder = "/year=" + yesterday_year + "/month=" + yesterday_month + "/day=" + yesterday_day + "/"
 
 def list_bucket_content(bucket):
@@ -113,6 +112,7 @@ def db_state_update(table_name, params):
 
 
 def handler(event: dict, ctx: dict) -> ():
+    S3_BUCKET = get_bucket_url()
     return pipe([
         list_bucket_content,
         filter_files,
@@ -138,6 +138,7 @@ if __name__ == '__main__':
             url = f"aggregated/ga{date_folder}events/part-00000-3418d3cf-68e9-486f-ae13-f60d3d44ed94-c000.csv"
             self.assertEqual(filter_files([url]), [url])
 
+        @unittest.skip
         def test_db_state_update(self):
             params = construct_params(yesterday_year, yesterday_month, yesterday_day) 
             self.assertEqual(db_state_update(get_table_name(), params), "success")

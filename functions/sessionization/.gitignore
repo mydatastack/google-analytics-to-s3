@@ -1,7 +1,10 @@
 export/
+tests/
 *.json
 *.jsonl
 spark-warehouse/
 *export
 export*
 jsonsplitted/
+samples/
+aggregated/

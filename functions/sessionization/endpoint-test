@@ -1,3 +1,0 @@
-DEV_ENDPOINT=glue@ec2-18-185-114-134.eu-central-1.compute.amazonaws.com
-scp gluespark.py $DEV_ENDPOINT:/home/glue/gluespark.py
-ssh -i ~/.ssh/tarasowski $DEV_ENDPOINT gluepython  gluespark.py --s3bucket tarasowski-main-dev-machine-googleanal-databucket-cl4te8jo5be1

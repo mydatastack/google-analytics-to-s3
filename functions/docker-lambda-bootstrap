@@ -18,5 +18,5 @@ echo "Making folder for the layer"
 mkdir -p ./python/lib/python3.7/site-packages/
 echo "Changing to the folder for the install"
 cd ./python/lib/python3.7/site-packages/ 
-# $2 should be the pip package you want to install
+# $1 should be the pip package you want to install
 python3.7 -m pip install -t ./ $1 

@@ -5,3 +5,4 @@ node_modules
 **/tmp
 **/local
 functions/lambda-layers/*
+functions/dev-environment/

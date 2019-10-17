@@ -433,6 +433,36 @@ Resources:
       Role:
         Ref: GlueJobRole
 
+  GlueTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.7
+      MemorySize: 128
+      Timeout: 60
+      Environment:
+        Variables:
+          JOB_NAME:
+            Ref: GlueJob 
+      ReservedConcurrentExecutions: 1
+      Handler: main.handler
+      CodeUri: ../functions/job-executor
+      Events:
+        ScheduleUpload:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 3 * * ? *)
+            Name: 
+              Fn::Sub: "${Name}-Glue-Trigger-Function-${Stage}"
+            Description: runs a function every day at 3am 
+            Enabled: True
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - glue:StartJobRun 
+              Resource:
+                - "*" 
   GlueTrigger:
     Condition: GlueTriggerActive
     Type: AWS::Glue::Trigger

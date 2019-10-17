@@ -12,7 +12,7 @@ Athena.
 
 1. Run `git clone` and `cd` into the directory.
 
-2. `cd functions/enrichment/`. Download [GeoLite2
+2. Run `cd functions/enrichment/`. Download [GeoLite2
    City](https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz)
 unzip it and place it into the `mmdb` directory. Install the dependencies.
 

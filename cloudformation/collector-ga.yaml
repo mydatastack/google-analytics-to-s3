@@ -355,7 +355,8 @@ Resources:
       Path: "/"
       Policies:
         -
-          PolicyName: "databucket"
+          PolicyName: 
+            Fn::Sub: "${Name}S3AccessGlueRoleDataBuckeet${Stage}"
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -377,7 +378,8 @@ Resources:
                     - - Fn::GetAtt: [ DataBucket , Arn ]
                       - "/*"
         -
-          PolicyName: "cf-script-template"
+          PolicyName: 
+            Fn::Sub: "${Name}S3AccessGlueRole${Stage}"
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -391,7 +393,8 @@ Resources:
                   - s3:ListBucketMultipartUploads
                 Resource: "*" # ! need to give least privilege permission, change from * to exact resource arn 
         -
-          PolicyName: "cloudwatch-logs-glue-jobs"
+          PolicyName: 
+            Fn::Sub: "${Name}GlueRoleCloudWatchLogs${Stage}"
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -401,7 +404,8 @@ Resources:
                   - logs:* 
                 Resource: "*" # ! need to give least privilege permission, change from * to exact resource arn 
         -
-          PolicyName: "cloudwatch-metrics-glue-jobs"
+          PolicyName: 
+            Fn::Sub: "${Name}GlueRoleCloudWatchMetric${Stage}"
           PolicyDocument:
             Version: 2012-10-17
             Statement:
@@ -428,7 +432,8 @@ Resources:
       ExecutionProperty:
         MaxConcurrentRuns: 2
       MaxRetries: 0
-      Name: PipesGAJob 
+      Name: 
+        Fn::Sub: "${Name}-${Stage}"
       Timeout: 60
       Role:
         Ref: GlueJobRole
@@ -597,6 +602,163 @@ Resources:
         BucketEventsTopic:
           Ref: BucketEventsTopic
 
+  GlueDatabase:
+      Type: AWS::Glue::Database
+      Properties:
+        CatalogId: 
+          Ref: AWS::AccountId
+        DatabaseInput:
+          Name: 
+            Fn::Sub: "${Name}_${Stage}"
+
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      DatabaseName:
+        Ref: GlueDatabase
+      Description: "The default crawler"
+      Name: 
+        Fn::Sub: "${Name}-${Stage}" 
+      Role:
+        Fn::GetAtt: [GlueCrawlerRole, Arn]
+      Schedule:
+        ScheduleExpression: "cron(0 * * * ? *)" 
+      Targets:
+        S3Targets:
+          - Path: 
+              Fn::Join:
+                - ""
+                - - Ref: DataBucket
+                  - "/aggregated/ga/daily/"
+      SchemaChangePolicy:
+        UpdateBehavior: "UPDATE_IN_DATABASE"
+        DeleteBehavior: "DEPRECATE_IN_DATABASE"
+
+  GlueCrawlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+              - glue.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: 
+            Fn::Sub: "${Name}GlueCrawlerS3ObjectPolicy${Stage}"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:ListBucket
+                - s3:GetBucketLocation
+                - s3:GetBucketAcl
+              Resource:
+                - Fn::GetAtt: [DataBucket, Arn]
+                - Fn::Join:
+                    - ""
+                    - - Fn::GetAtt: [DataBucket, Arn] 
+                      - "/aggregated*"
+        - PolicyName: 
+            Fn::Sub: "${Name}GlueCrawlerCloudWatchPolicy${Stage}"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup 
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                Fn::Sub: "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws-glue/*" 
+        - PolicyName: 
+            Fn::Sub: "${Name}GlueCrawlerDatabasePolicy${Stage}"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Action:
+                - "glue:*"
+              Resource: "*"
+
+  GlueConfigurationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: 
+        Fn::GetAtt: [GlueConfigurationRole, Arn]
+      Code:
+        ZipFile: |
+          const response = require("cfn-response");
+          const AWS = require("aws-sdk");
+          const glue = new AWS.Glue();
+          exports.handler = function (event, context) {
+            console.log("Request received:\n", JSON.stringify(event));
+            let physicalResourceId = event.ResourceProperties.CrawlerName;
+            const respond = (e) => response.send(event, context, e ? response.FAILED : response.SUCCESS, e ? e : {}, physicalResourceId);
+            process.on('uncaughtException', e=>respond(e));
+            try {
+              let configuration = (event.RequestType === 'Create' || event.RequestType === 'Update') ?
+                event.ResourceProperties.Configuration :
+                {};
+              if (configuration.Version) {
+                configuration.Version = parseFloat(configuration.Version);
+              }
+              glue.updateCrawler({
+                Name: physicalResourceId,
+                Configuration: JSON.stringify(configuration)
+              }).promise()
+                .then(data=>respond())
+                .catch(e=>respond(e));
+            } catch (e) { respond(e); }
+          };
+      Timeout: 30
+      Runtime: nodejs8.10
+
+  GlueConfigurationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal: 
+            Service: 
+              - lambda.amazonaws.com
+          Action: 
+            - 'sts:AssumeRole'
+      Path: /
+      ManagedPolicyArns:
+      - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+      - PolicyName: GluePolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'glue:UpdateCrawler'
+              Resource: '*'
+
+  CrawlerConfiguration:
+    Type: Custom::CrawlerConfiguration
+    Properties:
+      ServiceToken: 
+        Fn::GetAtt: [GlueConfigurationLambda, Arn]
+      CrawlerName: 
+        Ref: GlueCrawler
+      Configuration:
+        Version: '1.0'
+        CrawlerOutput:
+          Partitions:
+            AddOrUpdateBehavior: InheritFromTable
 Outputs:
   CollectorEndpoint:
     Description: URL of the endpoint that should be used with Google Analytics Duplicator 

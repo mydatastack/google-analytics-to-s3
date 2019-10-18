@@ -8,12 +8,11 @@ Athena.
 
 ![architecture](./example/architecture/ga-to-s3-architecture.png)
 
-## Setup
+## 4-Step Setup Process (Duration ~ 10 Minutes)
 
-1. ![cf launch stack](./example/readme/cloudformation-launch-stack.png) Click the
-button and the stack gets automatically launched in your AWS Account.
+1. ![cf launch stack](./example/readme/cloudformation-launch-stack.png) - By clicking the button the stack gets automatically launched in your AWS Account.
 
-2. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
+2. Create a **Custom JavaScript variable** in Google Tag Manager. **Important:** Don't forget to change the endpoint in the code. The endpoint url will be displayed as the output of the stack [see here](#additional-information)
 
 ```js
 function() {
@@ -41,11 +40,8 @@ function() {
 }
 ```
 
-**Important:** Don't forget to change the endpoint in the code. The endpoint
-you can find in Cloudformation under the deployed Google Analytics Nested Stack
-[more](#additional-information)
 
-3. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
+3. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click Save.
 
 ![gtm pipes](./example/readme/gtm-pipes.png)
 

@@ -10,9 +10,9 @@ Athena.
 
 ## 4-Step Setup Process (Duration ~ 10 Minutes)
 
-1. ![cf launch stack](./example/readme/cloudformation-launch-stack.png) - By clicking the button the stack gets automatically launched in your AWS Account.
+1. [![cf launch stack](./example/readme/cloudformation-launch-stack.png)](https://eu-central-1.console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/create/review?templateURL=https://public-pipes-ga-s3-cloudformation-stack.s3.eu-central-1.amazonaws.com/631216aef6ab2824fc63572d1d3d5e6c.template) (By clicking the button the stack gets automatically launched in your AWS Account.)
 
-2. Create a **Custom JavaScript variable** in Google Tag Manager. **Important:** Don't forget to change the endpoint in the code. The endpoint url will be displayed as the output of the stack [see here](#additional-information)
+2. Create a **Custom JavaScript variable** in Google Tag Manager. **Important:** Don't forget to change the endpoint in the code. The endpoint url will be displayed as the output of the stack [see here](#additional-information).
 
 ```js
 function() {
@@ -52,7 +52,7 @@ function() {
 ---
 
 ### Additional Information
-* Google Analytics Duplicator Endpoint
+* Google Analytics to S3 Endpoint 
 
 ![duplicator](./example/readme/cf-endpoint.png)
 

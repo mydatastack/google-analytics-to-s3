@@ -10,7 +10,7 @@ Athena.
 
 ## Setup
 
-1. ![cf launch stack](./example/readme/cloudfromation-launch-stack.png) Click the
+1. ![cf launch stack](./example/readme/cloudformation-launch-stack.png) Click the
 button and the stack gets automatically launched in your AWS Account.
 
 2. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:

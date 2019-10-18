@@ -10,18 +10,10 @@ Athena.
 
 ## Setup
 
-1. Run `git clone` and `cd` into the directory.
+1. ![cf launch stack](./example/readme/cloudfromation-launch-stack.png) Click the
+button and the stack gets automatically launched in your AWS Account.
 
-2. Run `cd functions/enrichment/`. Download [GeoLite2
-   City](https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz)
-unzip it and place it into the `mmdb` directory. Install the dependencies.
-
-3. Run `cd .. && cd .. && make create_bucket`. This command will create an S3 bucket for Cloudformation
-   artifacts.
-
-4. Run `make deploy`. This command is going to deploy the Cloudformation stack.
-
-5. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
+2. Create a **Custom JavaScript variable** in Google Tag Manager. Call the variable `Pipes duplicator` and add the following code:
 
 ```js
 function() {
@@ -53,13 +45,11 @@ function() {
 you can find in Cloudformation under the deployed Google Analytics Nested Stack
 [more](#additional-information)
 
-6. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
+3. Edit **EVERY SINGLE** Google Analytics tag whose data you want to send to Pipes. Go to **Tags**, click on a **Tag Name** you want to edit. Click on **Enable overriding settings in this tag**. Click on **+Add Field**, use `customTask` as a field name and `{{Pipes duplicator}}` as a value. Click save.
 
 ![gtm pipes](./example/readme/gtm-pipes.png)
 
-7. Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically.
-
-8. Once the data has been collected and transformed, you can query the data e.g. via AWS Athena.
+4. Publish a new version in Google Tag Manager. After publishing a new version, all Google Analytics hits will be sent to Pipes automatically. Once the data has been collected and transformed, you can query the data e.g. via AWS Athena.
 
 ![athena](./example/readme/end-result-small.png)
 

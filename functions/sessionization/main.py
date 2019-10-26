@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.context import SparkContext
 from pyspark.sql.types import DateType, StringType, StructType, StructField, DoubleType, IntegerType, TimestampType, BooleanType, LongType, ArrayType
-from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp, current_date, date_sub, desc, date_add, udf
+from pyspark.sql.functions import first, col, expr, when, reverse, spark_partition_id, sum as spark_sum, lit, monotonically_increasing_id, unix_timestamp, current_timestamp, to_timestamp, current_date, date_sub, desc, date_add, udf
 from pyspark.sql.window import Window
 from pyspark.sql import Row
 from pyspark.sql.window import Window
@@ -455,7 +455,7 @@ def get_total_revenue(input_df):
                 .withColumn(
                     'total_revenue_per_session',
                     when(col("is_new_session") == '1', 
-                        sum(when((col("body_t") == 'event') & (col("body_pa") == 'purchase'), 
+                        spark_sum(when((col("body_t") == 'event') & (col("body_pa") == 'purchase'), 
                                 col("body_tr")).otherwise(lit(''))
                         ).over(w)).otherwise(lit('')))
 
